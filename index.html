@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoicePad — скачать</title>
+<style>
+  :root { --bg:#fff; --fg:#1a1a1a; --muted:#666; --card:#f3f4f7; --accent:#3b6fe0; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --fg:#eceef2; --muted:#9aa0aa; --card:#1e2127; --accent:#5b8cff; }
+  }
+  body { margin:0; font:16px/1.55 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:620px; margin:0 auto; padding:40px 20px; }
+  h1 { margin:0 0 6px; }
+  p.lead { color:var(--muted); margin-top:0; }
+  .btns { display:flex; flex-wrap:wrap; gap:12px; margin:24px 0 8px; }
+  a.btn { background:var(--accent); color:#fff; text-decoration:none; padding:12px 20px; border-radius:10px; font-weight:600; }
+  a.btn.alt { background:var(--card); color:var(--fg); }
+  .card { background:var(--card); border-radius:12px; padding:16px 20px; margin-top:20px; }
+  .card h2 { font-size:1.05rem; margin:0 0 8px; }
+  ol, ul { margin:0; padding-left:20px; }
+  small { color:var(--muted); }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>VoicePad</h1>
+  <p class="lead">Саундпад с озвучкой текста нейросетью: пишете фразу — она звучит в игре через микрофон.</p>
+
+  <div class="btns">
+    <a class="btn" id="setup" href="#">Скачать установщик</a>
+    <a class="btn alt" id="portable" href="#">Без установки (.exe)</a>
+  </div>
+  <small>Windows 10/11. Windows может показать предупреждение — нажмите «Подробнее» → «Выполнить в любом случае».</small>
+
+  <div class="card">
+    <h2>Как начать</h2>
+    <ol>
+      <li>Запустите VoicePad. Если нет виртуального микрофона, программа предложит установить его одной кнопкой (бесплатный драйвер <a href="https://vb-audio.com/Cable/">VB-CABLE</a>). Windows попросит подтвердить установку.</li>
+      <li>Во вкладке «Настройки» вставьте API-ключ с <a href="https://fish.audio/app/api-keys">fish.audio</a>.</li>
+      <li>В игре или Discord выберите микрофоном «CABLE Output».</li>
+    </ol>
+  </div>
+</main>
+<script>
+  const REPO = "v1sor781/voicepad";
+  const base = "https://github.com/" + REPO + "/releases/latest/download/";
+  document.getElementById("setup").href = base + "VoicePad-Setup.exe";
+  document.getElementById("portable").href = base + "VoicePad.exe";
+</script>
+</body>
+</html>
