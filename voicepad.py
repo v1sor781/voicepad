@@ -352,14 +352,14 @@ class App(ctk.CTk):
         keyboard.unhook_all_hotkeys()
         for s in self.cfg["sounds"]:
             if s.get("hotkey"):
-                self._bind(s["hotkey"], lambda p=s["path"]: self.engine.play(p))
+                self._add_hotkey(s["hotkey"], lambda p=s["path"]: self.engine.play(p))
         for ph in self.cfg["phrases"]:
             if ph.get("hotkey"):
-                self._bind(ph["hotkey"], lambda ph=ph: self.play_phrase(ph))
+                self._add_hotkey(ph["hotkey"], lambda ph=ph: self.play_phrase(ph))
         if self.cfg["stop_hotkey"]:
-            self._bind(self.cfg["stop_hotkey"], self.engine.stop)
+            self._add_hotkey(self.cfg["stop_hotkey"], self.engine.stop)
 
-    def _bind(self, hk, fn):
+    def _add_hotkey(self, hk, fn):
         try:
             keyboard.add_hotkey(hk, fn)
         except Exception as e:
