@@ -15,6 +15,7 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\VoicePad.exe
+SetupIconFile=voicepad.ico
 
 [Languages]
 Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
