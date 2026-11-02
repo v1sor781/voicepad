@@ -9,12 +9,14 @@ VoicePad — саундпад с озвучкой текста через Fish A
 import copy
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 import threading
 import time
+import traceback
 import webbrowser
 import zipfile
 from pathlib import Path
@@ -73,16 +75,20 @@ def save_cfg(cfg):
 
 def list_devices(kind):
     """{имя: индекс} для 'input' / 'output'. Берём только MME — он самый совместимый."""
-    api = next((i for i, h in enumerate(sd.query_hostapis()) if h["name"] == "MME"), None)
     res = {}
-    for i, d in enumerate(sd.query_devices()):
-        if d[f"max_{kind}_channels"] > 0 and (api is None or d["hostapi"] == api):
-            res[d["name"]] = i
+    try:
+        api = next((i for i, h in enumerate(sd.query_hostapis()) if h["name"] == "MME"), None)
+        for i, d in enumerate(sd.query_devices()):
+            if d[f"max_{kind}_channels"] > 0 and (api is None or d["hostapi"] == api):
+                res[d["name"]] = i
+    except Exception:
+        pass  # нет аудиоустройств или сбой PortAudio: программа всё равно должна запуститься
     return res
 
 
 CABLE_PAGE = "https://vb-audio.com/Cable/"
 CABLE_SETUP = "VBCABLE_Setup_x64.exe"
+HTTP_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) VoicePad"}
 
 
 def program_dir():
@@ -90,6 +96,11 @@ def program_dir():
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent
+
+
+def resource_path(name):
+    """Файл, упакованный в exe (или лежащий рядом со скриптом)."""
+    return Path(getattr(sys, "_MEIPASS", program_dir())) / name
 
 
 def vbcable_dir():
@@ -130,12 +141,12 @@ def install_cable(say):
     """Скачивает VB-CABLE с официального сайта VB-Audio в папку программы и запускает установку.
     Windows попросит права администратора и подтверждение установки драйвера."""
     say("Ищу VB-CABLE на сайте VB-Audio…")
-    html = requests.get(CABLE_PAGE, timeout=30).text
-    m = re.search(r'href="([^"]*VBCABLE_Driver_Pack[^"]*\.zip)"', html, re.I)
+    html = requests.get(CABLE_PAGE, headers=HTTP_HEADERS, timeout=30).text
+    m = re.search(r'href=["\']([^"\']*VBCABLE_Driver_Pack[^"\']*\.zip)["\']', html, re.I)
     if not m:
         raise RuntimeError("не нашёл ссылку на скачивание")
     say("Скачиваю VB-CABLE…")
-    data = requests.get(urljoin(CABLE_PAGE, m.group(1)), timeout=120).content
+    data = requests.get(urljoin(CABLE_PAGE, m.group(1)), headers=HTTP_HEADERS, timeout=120).content
     target = vbcable_dir()
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         names = z.namelist()
@@ -164,6 +175,14 @@ def uninstall_cable(say):
     shutil.rmtree(setup.parent, ignore_errors=True)
 
 
+def note_label(parent, text, wraplength, **kw):
+    """Подпись с переносом строк; justify поддерживается не во всех версиях customtkinter."""
+    try:
+        return ctk.CTkLabel(parent, text=text, wraplength=wraplength, justify="left", anchor="w", **kw)
+    except ValueError:
+        return ctk.CTkLabel(parent, text=text, wraplength=wraplength, anchor="w", **kw)
+
+
 class Player:
     def __init__(self, cfg, report):
         self.cfg, self.report = cfg, report
@@ -183,7 +202,11 @@ class Player:
         except Exception as e:
             self.report(f"Не удалось прочитать {Path(path).name}: {e}")
             return
-        outs = list_devices("output")
+        try:
+            outs = list_devices("output")
+        except Exception as e:
+            self.report(f"Ошибка: {e}")
+            return
         started = False
         for dev_key, vol_key in (("cable_device", "vol_cable"), ("monitor_device", "vol_monitor")):
             idx = outs.get(self.cfg[dev_key])
@@ -239,11 +262,13 @@ class Player:
 
 class App(ctk.CTk):
     def __init__(self):
-        super().__init__()
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
+        super().__init__()
+        self.callback_errors = []
         self.title("VoicePad")
-        self.geometry("780x680")
+        self.geometry("800x720")
+        self.minsize(680, 560)
         self.cfg = load_cfg()
         self.engine = Player(self.cfg, self.report)
         self.voice_menus = []
@@ -255,6 +280,10 @@ class App(ctk.CTk):
         self.rebind_all()
         self.engine.restart_passthrough()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.install_clipboard_shortcuts()
+        ico = resource_path("voicepad.ico")
+        if ico.exists():
+            self.after(250, lambda: self.apply_window_icon(ico))  # CTk ставит свою иконку с задержкой
         if not any("cable" in n.lower() for n in list_devices("output")):
             self.after(600, self.show_cable_hint)
 
@@ -280,22 +309,22 @@ class App(ctk.CTk):
         win.title("Нужен виртуальный микрофон")
         win.geometry("460x330")
         win.attributes("-topmost", True)
-        ctk.CTkLabel(
-            win, wraplength=420, justify="left",
+        note_label(
+            win, wraplength=420,
             text=("Не нашёл виртуальный микрофон.\n\n"
                   "Windows не даёт программе говорить в настоящий микрофон напрямую, поэтому нужен "
                   "бесплатный драйвер VB-CABLE от VB-Audio. Программа скачает его с официального "
                   "сайта и запустит установку. Windows попросит подтвердить права администратора "
                   "и установку драйвера."),
         ).pack(padx=20, pady=(20, 8))
-        lbl = ctk.CTkLabel(win, text="", wraplength=420, text_color="#9ab")
+        lbl = ctk.CTkLabel(win, text="", wraplength=420, text_color="#99aabb")
         lbl.pack(pady=4)
         btn = ctk.CTkButton(win, text="Установить автоматически")
         btn.configure(command=lambda: self.install_cable_async(btn, lbl))
         btn.pack(pady=4)
-        ctk.CTkButton(win, text="Скачать вручную", fg_color="#444", hover_color="#555",
+        ctk.CTkButton(win, text="Скачать вручную", fg_color="#444444", hover_color="#555555",
                       command=lambda: webbrowser.open(CABLE_PAGE)).pack(pady=4)
-        ctk.CTkButton(win, text="Закрыть", fg_color="#444", hover_color="#555",
+        ctk.CTkButton(win, text="Закрыть", fg_color="#444444", hover_color="#555555",
                       command=win.destroy).pack(pady=4)
 
     def install_cable_async(self, btn=None, lbl=None):
@@ -341,15 +370,76 @@ class App(ctk.CTk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def install_clipboard_shortcuts(self):
+        """В Tk Ctrl+C/V/X/A не работают при русской раскладке: обрабатываем по коду клавиши."""
+        def handler(event):
+            if event.keysym.lower() in ("c", "v", "x", "a"):
+                return None  # латинская раскладка: Tk справится сам
+            w = event.widget
+            action = {67: "<<Copy>>", 86: "<<Paste>>", 88: "<<Cut>>"}.get(event.keycode)
+            try:
+                if action:
+                    w.event_generate(action)
+                    return "break"
+                if event.keycode == 65:
+                    if w.winfo_class() == "Text":
+                        w.tag_add("sel", "1.0", "end-1c")
+                    else:
+                        w.select_range(0, "end")
+                    return "break"
+            except Exception:
+                pass
+            return None
+        self.bind_all("<Control-KeyPress>", handler)
+
+    def report_callback_exception(self, exc, val, tb):
+        """Ошибки в обработчиках кнопок: пишем в лог и в строку статуса, а не молча теряем."""
+        self.callback_errors.append("".join(traceback.format_exception(exc, val, tb)))
+        try:
+            with open(APP_DIR / "error.log", "a", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S") + "\n"
+                        + "".join(traceback.format_exception(exc, val, tb)) + "\n")
+        except OSError:
+            pass
+        try:
+            self.status.configure(text=f"Ошибка: {val}")
+        except Exception:
+            pass
+
+    def smoke_test(self):
+        """Автопроверка для сборки на GitHub: пробегает по вкладкам и основным действиям."""
+        self.phrase_entry.insert(0, "тест")
+        self.add_phrase_from_entry()
+        self.id_entry.insert(0, "https://fish.audio/m/" + "a" * 32)
+        self.add_voice_from_entry()
+        for name in ("Звуки", "Фразы", "Голос ИИ", "История", "Настройки"):
+            self.tabs.set(name)
+            self.update()
+        self.save_settings()
+        self.remove_phrase(self.cfg["phrases"][-1])
+        self.update()
+
+    def apply_window_icon(self, ico):
+        try:
+            self.iconbitmap(str(ico))
+        except Exception:
+            pass
+
     def on_close(self):
         save_cfg(self.cfg)
         self.engine.stop()
-        keyboard.unhook_all()
+        try:
+            keyboard.unhook_all()
+        except Exception:
+            pass
         self.destroy()
 
     # ---- хоткеи
     def rebind_all(self):
-        keyboard.unhook_all_hotkeys()
+        try:
+            keyboard.unhook_all_hotkeys()
+        except AttributeError:
+            pass  # слушатель клавиатуры ещё не запущен, снимать нечего
         for s in self.cfg["sounds"]:
             if s.get("hotkey"):
                 self._add_hotkey(s["hotkey"], lambda p=s["path"]: self.engine.play(p))
@@ -382,14 +472,14 @@ class App(ctk.CTk):
     def _build(self):
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.pack(fill="x", padx=12, pady=(10, 0))
-        ctk.CTkButton(bar, text="■ Стоп", width=90, fg_color="#b33", hover_color="#922",
+        ctk.CTkButton(bar, text="■ Стоп", width=90, fg_color="#bb3333", hover_color="#992222",
                       command=self.engine.stop).pack(side="left")
-        self.stop_hk_btn = ctk.CTkButton(bar, width=140, fg_color="#444", hover_color="#555",
+        self.stop_hk_btn = ctk.CTkButton(bar, width=140, fg_color="#444444", hover_color="#555555",
                                          text=self._hk_text(self.cfg["stop_hotkey"], "Клавиша «Стоп»"),
                                          command=self.set_stop_hotkey)
         self.stop_hk_btn.pack(side="left", padx=8)
 
-        self.status = ctk.CTkLabel(self, text="", anchor="w", text_color="#9ab")
+        self.status = ctk.CTkLabel(self, text="", anchor="w", text_color="#99aabb")
         self.status.pack(side="bottom", fill="x", padx=14, pady=6)
 
         self.tabs = ctk.CTkTabview(self)
@@ -443,9 +533,9 @@ class App(ctk.CTk):
             ctk.CTkButton(row, text=f"▶  {s['name']}", anchor="w",
                           command=lambda p=s["path"]: self.engine.play(p)).pack(side="left", fill="x", expand=True)
             ctk.CTkButton(row, text=self._hk_text(s["hotkey"], "Клавиша"), width=110,
-                          fg_color="#444", hover_color="#555",
+                          fg_color="#444444", hover_color="#555555",
                           command=lambda s=s: self.set_sound_hotkey(s)).pack(side="left", padx=4)
-            ctk.CTkButton(row, text="✕", width=34, fg_color="#633", hover_color="#a44",
+            ctk.CTkButton(row, text="✕", width=34, fg_color="#663333", hover_color="#aa4444",
                           command=lambda s=s: self.remove_sound(s)).pack(side="left")
 
     def set_sound_hotkey(self, s):
@@ -466,6 +556,8 @@ class App(ctk.CTk):
 
     # ---- вкладка «Голос ИИ»
     def _build_tts(self, tab):
+        tab = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        tab.pack(fill="both", expand=True)
         row = ctk.CTkFrame(tab, fg_color="transparent")
         row.pack(fill="x")
         ctk.CTkLabel(row, text="Голос:").pack(side="left")
@@ -486,7 +578,7 @@ class App(ctk.CTk):
         ctk.CTkSwitch(row, text="Сохранять фразу в «Звуки»", variable=self.save_var).pack(side="left")
         self.speak_btn = ctk.CTkButton(row, text="Озвучить и воспроизвести", command=self.speak)
         self.speak_btn.pack(side="right")
-        ctk.CTkButton(row, text="★ В фразы", width=90, fg_color="#444", hover_color="#555",
+        ctk.CTkButton(row, text="★ В фразы", width=90, fg_color="#444444", hover_color="#555555",
                       command=self.phrase_from_textbox).pack(side="right", padx=6)
 
         ctk.CTkLabel(tab, text="Найти голос на Fish Audio", anchor="w",
@@ -641,9 +733,9 @@ class App(ctk.CTk):
         menu.pack(side="left", padx=6)
         self.voice_menus.append(menu)
         ctk.CTkButton(row, text="+ Добавить", width=100, command=self.add_phrase_from_entry).pack(side="left")
-        ctk.CTkLabel(tab, anchor="w", justify="left", text_color="#9ab", wraplength=700,
-                     text="Первое нажатие озвучивает фразу, дальше она играет мгновенно из сохранённого "
-                          "файла (без трат). ↻ — озвучить заново.").pack(fill="x", pady=(6, 0))
+        note_label(tab, text_color="#99aabb", wraplength=700,
+                   text="Первое нажатие озвучивает фразу, дальше она играет мгновенно из сохранённого "
+                        "файла (без трат). ↻ — озвучить заново.").pack(fill="x", pady=(6, 0))
         self.phrase_list = ctk.CTkScrollableFrame(tab)
         self.phrase_list.pack(fill="both", expand=True, pady=8)
 
@@ -679,11 +771,11 @@ class App(ctk.CTk):
             ctk.CTkButton(row, text=f"▶  {ph['text'][:60]}", anchor="w", height=36,
                           command=lambda ph=ph: self.play_phrase(ph)).pack(side="left", fill="x", expand=True)
             ctk.CTkButton(row, text=self._hk_text(ph["hotkey"], "Клавиша"), width=110, height=36,
-                          fg_color="#444", hover_color="#555",
+                          fg_color="#444444", hover_color="#555555",
                           command=lambda ph=ph: self.set_phrase_hotkey(ph)).pack(side="left", padx=4)
-            ctk.CTkButton(row, text="↻", width=34, height=36, fg_color="#444", hover_color="#555",
+            ctk.CTkButton(row, text="↻", width=34, height=36, fg_color="#444444", hover_color="#555555",
                           command=lambda ph=ph: self.play_phrase(ph, force=True)).pack(side="left")
-            ctk.CTkButton(row, text="✕", width=34, height=36, fg_color="#633", hover_color="#a44",
+            ctk.CTkButton(row, text="✕", width=34, height=36, fg_color="#663333", hover_color="#aa4444",
                           command=lambda ph=ph: self.remove_phrase(ph)).pack(side="left", padx=(4, 0))
 
     def play_phrase(self, ph, force=False):
@@ -725,7 +817,7 @@ class App(ctk.CTk):
         top = ctk.CTkFrame(tab, fg_color="transparent")
         top.pack(fill="x")
         ctk.CTkLabel(top, text=f"Последние {HISTORY_MAX} озвучек", anchor="w").pack(side="left")
-        ctk.CTkButton(top, text="Очистить", width=90, fg_color="#444", hover_color="#555",
+        ctk.CTkButton(top, text="Очистить", width=90, fg_color="#444444", hover_color="#555555",
                       command=self.clear_history).pack(side="right")
         self.hist_list = ctk.CTkScrollableFrame(tab)
         self.hist_list.pack(fill="both", expand=True, pady=8)
@@ -748,13 +840,13 @@ class App(ctk.CTk):
             row.pack(fill="x", pady=2)
             ctk.CTkButton(row, text=f"▶  {e['text'][:44]}", anchor="w",
                           command=lambda p=e["path"]: self.engine.play(p)).pack(side="left", fill="x", expand=True)
-            ctk.CTkLabel(row, text=e["voice"][:14], width=100, text_color="#889").pack(side="left")
-            ctk.CTkButton(row, text="★", width=34, fg_color="#444", hover_color="#555",
+            ctk.CTkLabel(row, text=e["voice"][:14], width=100, text_color="#888899").pack(side="left")
+            ctk.CTkButton(row, text="★", width=34, fg_color="#444444", hover_color="#555555",
                           command=lambda e=e: self.add_phrase(e["text"], e["voice"], e["voice_id"], e["path"])
                           ).pack(side="left")
-            ctk.CTkButton(row, text="↩", width=34, fg_color="#444", hover_color="#555",
+            ctk.CTkButton(row, text="↩", width=34, fg_color="#444444", hover_color="#555555",
                           command=lambda e=e: self.history_to_textbox(e)).pack(side="left", padx=4)
-            ctk.CTkButton(row, text="✕", width=34, fg_color="#633", hover_color="#a44",
+            ctk.CTkButton(row, text="✕", width=34, fg_color="#663333", hover_color="#aa4444",
                           command=lambda e=e: self.remove_history(e)).pack(side="left")
 
     def history_to_textbox(self, e):
@@ -779,6 +871,8 @@ class App(ctk.CTk):
 
     # ---- вкладка «Настройки»
     def _build_settings(self, tab):
+        tab = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        tab.pack(fill="both", expand=True)
         def label(text):
             ctk.CTkLabel(tab, text=text, anchor="w").pack(fill="x", pady=(8, 0))
 
@@ -799,28 +893,32 @@ class App(ctk.CTk):
         self.mic_var = ctk.StringVar(value=self.cfg["mic_device"] or NONE)
 
         label("Виртуальный микрофон — выход в кабель (CABLE Input)")
-        ctk.CTkOptionMenu(tab, variable=self.cable_var, values=outs).pack(fill="x")
+        ctk.CTkOptionMenu(tab, variable=self.cable_var, values=outs,
+                          command=lambda _v: self.save_settings()).pack(fill="x")
         self.vol_cable = ctk.CTkSlider(tab, from_=0, to=1, command=lambda v: self.cfg.update(vol_cable=float(v)))
         self.vol_cable.set(self.cfg["vol_cable"])
         self.vol_cable.pack(fill="x", pady=4)
 
         label("Мои наушники / динамики (чтобы слышать самому)")
-        ctk.CTkOptionMenu(tab, variable=self.monitor_var, values=outs).pack(fill="x")
+        ctk.CTkOptionMenu(tab, variable=self.monitor_var, values=outs,
+                          command=lambda _v: self.save_settings()).pack(fill="x")
         self.vol_monitor = ctk.CTkSlider(tab, from_=0, to=1, command=lambda v: self.cfg.update(vol_monitor=float(v)))
         self.vol_monitor.set(self.cfg["vol_monitor"])
         self.vol_monitor.pack(fill="x", pady=4)
 
-        self.pt_switch = ctk.CTkSwitch(tab, text="Пропускать мой реальный микрофон в кабель")
+        self.pt_switch = ctk.CTkSwitch(tab, text="Пропускать мой реальный микрофон в кабель",
+                                       command=self.save_settings)
         if self.cfg["passthrough"]:
             self.pt_switch.select()
         self.pt_switch.pack(anchor="w", pady=(10, 2))
-        ctk.CTkOptionMenu(tab, variable=self.mic_var, values=ins).pack(fill="x")
+        ctk.CTkOptionMenu(tab, variable=self.mic_var, values=ins,
+                          command=lambda _v: self.save_settings()).pack(fill="x")
 
         row = ctk.CTkFrame(tab, fg_color="transparent")
         row.pack(pady=(14, 0))
-        ctk.CTkButton(row, text="Установить VB-CABLE", fg_color="#444", hover_color="#555",
+        ctk.CTkButton(row, text="Установить VB-CABLE", fg_color="#444444", hover_color="#555555",
                       command=self.install_cable_async).pack(side="left", padx=4)
-        ctk.CTkButton(row, text="Удалить VB-CABLE", fg_color="#444", hover_color="#555",
+        ctk.CTkButton(row, text="Удалить VB-CABLE", fg_color="#444444", hover_color="#555555",
                       command=self.uninstall_cable_async).pack(side="left", padx=4)
         ctk.CTkButton(tab, text="Сохранить", command=self.save_settings).pack(pady=14)
 
@@ -840,4 +938,17 @@ class App(ctk.CTk):
 
 
 if __name__ == "__main__":
-    App().mainloop()
+    app = App()
+    smoke_file = os.environ.get("VOICEPAD_SMOKE")  # задаётся только автосборкой на GitHub
+    if smoke_file:
+        def finish():
+            try:
+                app.smoke_test()
+                errors = "".join(app.callback_errors)
+                result = "ok" if not errors else "errors:\n" + errors
+            except Exception:
+                result = "exception:\n" + traceback.format_exc()
+            Path(smoke_file).write_text(result, "utf-8")
+            app.destroy()
+        app.after(3000, finish)
+    app.mainloop()
