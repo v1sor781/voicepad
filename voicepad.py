@@ -103,6 +103,35 @@ def resource_path(name):
     return Path(getattr(sys, "_MEIPASS", program_dir())) / name
 
 
+def set_window_icon(window, ico):
+    """Ставит иконку окну: через tkinter и напрямую через Windows API (CTk иногда подменяет свою)."""
+    try:
+        window.iconbitmap(str(ico))
+    except Exception:
+        pass
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        user32.GetParent.restype = ctypes.c_void_p
+        user32.GetParent.argtypes = [ctypes.c_void_p]
+        user32.LoadImageW.restype = ctypes.c_void_p
+        user32.LoadImageW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR, wintypes.UINT,
+                                      ctypes.c_int, ctypes.c_int, wintypes.UINT]
+        user32.SendMessageW.restype = ctypes.c_void_p
+        user32.SendMessageW.argtypes = [ctypes.c_void_p, wintypes.UINT, ctypes.c_void_p, ctypes.c_void_p]
+        hwnd = user32.GetParent(window.winfo_id()) or window.winfo_id()
+        for icon_kind, metric in ((1, 11), (0, 49)):          # ICON_BIG / SM_CXICON, ICON_SMALL / SM_CXSMICON
+            size = user32.GetSystemMetrics(metric)
+            hicon = user32.LoadImageW(None, str(ico), 1, size, size, 0x10)   # IMAGE_ICON, LR_LOADFROMFILE
+            if hicon:
+                user32.SendMessageW(hwnd, 0x80, icon_kind, hicon)             # WM_SETICON
+    except Exception:
+        pass
+
+
 def vbcable_dir():
     """Куда класть VB-CABLE: подпапка рядом с программой, а если туда нельзя писать — ~/.voicepad."""
     for base in (program_dir(), APP_DIR):
@@ -181,6 +210,54 @@ def note_label(parent, text, wraplength, **kw):
         return ctk.CTkLabel(parent, text=text, wraplength=wraplength, justify="left", anchor="w", **kw)
     except ValueError:
         return ctk.CTkLabel(parent, text=text, wraplength=wraplength, anchor="w", **kw)
+
+
+SILENT_LEVEL = 0.003   # ниже: полная тишина (около -50 дБ)
+OK_LEVEL = 0.02        # выше: сигнал слышно нормально (около -34 дБ)
+
+
+def find_input(substr):
+    """Индекс устройства записи, в названии которого есть substr (например, 'cable output')."""
+    for name, idx in list_devices("input").items():
+        if substr in name.lower():
+            return idx
+    return None
+
+
+def record_peak(dev, seconds, on_level):
+    """Слушает устройство записи и возвращает максимальный уровень 0..1.
+    on_level(v) вызывается для каждого блока (для индикатора уровня)."""
+    sr = int(sd.query_devices(dev)["default_samplerate"])
+    peak = [0.0]
+
+    def cb(indata, frames, t, status):
+        lvl = float(np.abs(indata).max()) if frames else 0.0
+        peak[0] = max(peak[0], lvl)
+        on_level(lvl)
+
+    with sd.InputStream(device=dev, channels=1, samplerate=sr, dtype="float32", callback=cb):
+        time.sleep(seconds)
+    return peak[0]
+
+
+def make_tone(sr=44100, seconds=1.2, freq=440.0, amp=0.35):
+    t = np.arange(int(sr * seconds)) / sr
+    y = (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+    fade = int(0.02 * sr)
+    ramp = np.linspace(0, 1, fade, dtype=np.float32)
+    y[:fade] *= ramp
+    y[-fade:] *= ramp[::-1]
+    return y.reshape(-1, 1), sr
+
+
+def verdict(peak, what_ok, what_silent, what_quiet):
+    """Превращает максимальный уровень в (слышно?, текст)."""
+    pct = f"{peak * 100:.0f}%"
+    if peak >= OK_LEVEL:
+        return True, f"{what_ok} (максимальный уровень {pct})."
+    if peak >= SILENT_LEVEL:
+        return False, f"{what_quiet} (максимальный уровень всего {pct})."
+    return False, what_silent if what_silent.endswith(".") else what_silent + "."
 
 
 class Player:
@@ -266,6 +343,7 @@ class App(ctk.CTk):
         ctk.set_default_color_theme("blue")
         super().__init__()
         self.callback_errors = []
+        self.meter = {"running": False, "level": 0.0}
         self.title("VoicePad")
         self.geometry("800x720")
         self.minsize(680, 560)
@@ -283,7 +361,8 @@ class App(ctk.CTk):
         self.install_clipboard_shortcuts()
         ico = resource_path("voicepad.ico")
         if ico.exists():
-            self.after(250, lambda: self.apply_window_icon(ico))  # CTk ставит свою иконку с задержкой
+            for delay in (250, 900):  # CTk ставит свою иконку с задержкой, поэтому повторяем
+                self.after(delay, lambda: self.apply_window_icon(ico))
         if not any("cable" in n.lower() for n in list_devices("output")):
             self.after(600, self.show_cable_hint)
 
@@ -309,6 +388,9 @@ class App(ctk.CTk):
         win.title("Нужен виртуальный микрофон")
         win.geometry("460x330")
         win.attributes("-topmost", True)
+        hint_ico = resource_path("voicepad.ico")
+        if hint_ico.exists():
+            win.after(300, lambda: set_window_icon(win, hint_ico))
         note_label(
             win, wraplength=420,
             text=("Не нашёл виртуальный микрофон.\n\n"
@@ -412,18 +494,139 @@ class App(ctk.CTk):
         self.add_phrase_from_entry()
         self.id_entry.insert(0, "https://fish.audio/m/" + "a" * 32)
         self.add_voice_from_entry()
-        for name in ("Звуки", "Фразы", "Голос ИИ", "История", "Настройки"):
+        for name in ("Звуки", "Фразы", "Голос ИИ", "История", "Настройки", "Проверка"):
             self.tabs.set(name)
             self.update()
+        ok, msg = self.check_virtual_mic(lambda v: None)   # без аудиоустройств должно вернуть понятную ошибку
+        assert isinstance(ok, bool) and msg, "проверка микрофона вернула мусор"
+        self.key_var.set("smoke-key")
+        assert self.cfg["api_key"] == "smoke-key", "ключ не применился сразу"
+        self.key_var.set("")
         self.save_settings()
         self.remove_phrase(self.cfg["phrases"][-1])
         self.update()
 
-    def apply_window_icon(self, ico):
+    # ---- проверка микрофона
+    def check_virtual_mic(self, on_level):
+        """Играет тон в виртуальный микрофон и слушает CABLE Output. Возвращает (слышно?, текст)."""
+        cable_in = list_devices("output").get(self.cfg["cable_device"])
+        if cable_in is None:
+            return False, ("Не выбран «Виртуальный микрофон — выход». Откройте «Настройки» и выберите "
+                           "CABLE Input (если его нет в списке, установите VB-CABLE и перезагрузите ПК).")
+        cable_out = find_input("cable output")
+        if cable_out is None:
+            return False, ("Не вижу устройство CABLE Output. Если VB-CABLE только что установлен, "
+                           "перезагрузите компьютер.")
+        data, sr = make_tone()
+        self.engine.stop()
+        token = self.engine.token
+        targets = [(cable_in, self.cfg["vol_cable"])]
+        monitor = list_devices("output").get(self.cfg["monitor_device"])
+        if monitor is not None:
+            targets.append((monitor, self.cfg["vol_monitor"]))   # писк слышно и в наушниках
+
+        def play():
+            for dev, vol in targets:
+                threading.Thread(target=self.engine._out, args=(dev, data, sr, vol, token), daemon=True).start()
+
+        threading.Timer(0.3, play).start()
+        peak = record_peak(cable_out, 2.0, on_level)
+        return verdict(
+            peak,
+            "Работает: тестовый сигнал дошёл до виртуального микрофона. В игре выберите микрофон «CABLE Output»",
+            ("Сигнал не дошёл до CABLE Output. Проверьте: в «Настройки» выбран CABLE Input, "
+             "громкость выхода не на нуле, VB-CABLE установлен."),
+            "Сигнал дошёл, но очень тихий. Увеличьте громкость «Виртуальный микрофон» в настройках")
+
+    def check_game_hears(self, on_level):
+        """Слушает CABLE Output: то, что услышит игра (ваш голос при включённом пропуске и звуки)."""
+        cable_out = find_input("cable output")
+        if cable_out is None:
+            return False, "Не вижу устройство CABLE Output. Установите VB-CABLE и перезагрузите компьютер."
+        peak = record_peak(cable_out, 6.0, on_level)
+        hint = ("Тишина: на CABLE Output ничего не поступает. Нажмите любой звук во время проверки "
+                "или включите «Пропускать мой реальный микрофон», выберите микрофон и скажите что-нибудь")
+        return verdict(peak, "Игра слышит звук", hint, "Игра слышит звук, но очень тихо")
+
+    def check_real_mic(self, on_level):
+        """Слушает ваш настоящий микрофон (выбранный в настройках или основной в Windows)."""
+        dev = list_devices("input").get(self.cfg["mic_device"])
+        if dev is None:
+            try:
+                dev = sd.default.device[0]
+            except Exception:
+                dev = -1
+            if dev is None or dev < 0:
+                return False, "Микрофон не найден. Выберите его в «Настройки» или подключите."
+        peak = record_peak(dev, 6.0, on_level)
+        silent = ("Микрофон молчит. Проверьте, что в «Настройки» выбран нужный микрофон, он включён "
+                  "в Windows (Параметры → Система → Звук → Ввод) и разрешён для приложений "
+                  "(Параметры → Конфиденциальность → Микрофон)")
+        return verdict(peak, "Микрофон слышно", silent,
+                       "Микрофон слышно, но очень тихо. Увеличьте его громкость в параметрах Windows")
+
+    def _build_check(self, tab):
+        body = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        body.pack(fill="both", expand=True)
+        note_label(body, wraplength=700,
+                   text="Проверьте, слышит ли игра ваш голос и звуки через виртуальный микрофон. "
+                        "Полоска показывает уровень сигнала.").pack(fill="x")
+        self.level_bar = ctk.CTkProgressBar(body, height=16)
+        self.level_bar.set(0)
+        self.level_bar.pack(fill="x", pady=10)
+        self.test_result = note_label(body, wraplength=700, text="", text_color="#99aabb")
+        self.test_result.pack(fill="x", pady=(0, 10))
+        tests = (
+            ("virtual", "Тест сигнала", "Проиграет короткий писк через виртуальный микрофон и проверит, "
+                                        "что он доходит до CABLE Output."),
+            ("game", "Что слышит игра (6 секунд)", "Слушает CABLE Output: говорите в микрофон "
+                                                   "(при включённом пропуске) или нажмите любой звук."),
+            ("mic", "Проверить мой микрофон (6 секунд)", "Слушает ваш настоящий микрофон: скажите что-нибудь."),
+        )
+        for kind, title, desc in tests:
+            ctk.CTkButton(body, text=title, command=lambda k=kind: self.start_test(k)).pack(fill="x", pady=(8, 0))
+            note_label(body, wraplength=700, text=desc, text_color="#889899").pack(fill="x")
+
+    def start_test(self, kind):
+        if self.meter["running"]:
+            return
+        self.meter.update(running=True, level=0.0)
+        intro = {"virtual": "Играю тестовый звук (вы услышите писк) и слушаю CABLE Output…",
+                 "game": "Слушаю CABLE Output 6 секунд: говорите или нажмите любой звук…",
+                 "mic": "Слушаю микрофон 6 секунд: скажите что-нибудь…"}[kind]
+        self.test_result.configure(text=intro, text_color="#99aabb")
+        threading.Thread(target=self._test_worker, args=(kind,), daemon=True).start()
+        self._poll_meter()
+
+    def _test_worker(self, kind):
+        def on_level(v):
+            self.meter["level"] = max(self.meter["level"], v)
+
         try:
-            self.iconbitmap(str(ico))
-        except Exception:
-            pass
+            func = {"virtual": self.check_virtual_mic, "game": self.check_game_hears, "mic": self.check_real_mic}[kind]
+            ok, msg = func(on_level)
+        except Exception as e:
+            ok, msg = False, f"Не удалось выполнить проверку: {e}"
+        self.meter["running"] = False
+        self.after(0, lambda: self.show_test_result(ok, msg))
+
+    def show_test_result(self, ok, msg):
+        self.test_result.configure(text=("✅ " if ok else "❌ ") + msg,
+                                   text_color="#55cc77" if ok else "#ee6666")
+        self.report(msg)
+
+    def _poll_meter(self):
+        lvl = self.meter["level"]
+        self.meter["level"] = lvl * 0.6          # плавное затухание индикатора
+        db = 20 * np.log10(max(lvl, 1e-5))
+        self.level_bar.set(min(1.0, max(0.0, (db + 60) / 60)))
+        if self.meter["running"]:
+            self.after(50, self._poll_meter)
+        else:
+            self.level_bar.set(0)
+
+    def apply_window_icon(self, ico):
+        set_window_icon(self, ico)
 
     def on_close(self):
         save_cfg(self.cfg)
@@ -484,13 +687,14 @@ class App(ctk.CTk):
 
         self.tabs = ctk.CTkTabview(self)
         self.tabs.pack(fill="both", expand=True, padx=12, pady=8)
-        for name in ("Звуки", "Фразы", "Голос ИИ", "История", "Настройки"):
+        for name in ("Звуки", "Фразы", "Голос ИИ", "История", "Настройки", "Проверка"):
             self.tabs.add(name)
         self._build_sounds(self.tabs.tab("Звуки"))
         self._build_phrases(self.tabs.tab("Фразы"))
         self._build_tts(self.tabs.tab("Голос ИИ"))
         self._build_history(self.tabs.tab("История"))
         self._build_settings(self.tabs.tab("Настройки"))
+        self._build_check(self.tabs.tab("Проверка"))
 
     @staticmethod
     def _hk_text(hk, empty):
@@ -876,15 +1080,17 @@ class App(ctk.CTk):
         def label(text):
             ctk.CTkLabel(tab, text=text, anchor="w").pack(fill="x", pady=(8, 0))
 
-        label("API-ключ Fish Audio (fish.audio/app/api-keys)")
-        self.key_entry = ctk.CTkEntry(tab, show="•")
-        self.key_entry.insert(0, self.cfg["api_key"])
+        label("API-ключ Fish Audio (fish.audio/app/api-keys), сохраняется сам")
+        self.key_var = ctk.StringVar(value=self.cfg["api_key"])
+        self.key_entry = ctk.CTkEntry(tab, show="•", textvariable=self.key_var)
         self.key_entry.pack(fill="x")
+        self.key_var.trace_add("write", lambda *_: self.live_save("api_key", self.key_var.get().strip()))
 
         label("Модель (заголовок model)")
-        self.model_entry = ctk.CTkEntry(tab)
-        self.model_entry.insert(0, self.cfg["model"])
+        self.model_var = ctk.StringVar(value=self.cfg["model"])
+        self.model_entry = ctk.CTkEntry(tab, textvariable=self.model_var)
         self.model_entry.pack(fill="x")
+        self.model_var.trace_add("write", lambda *_: self.live_save("model", self.model_var.get().strip()))
 
         outs = [NONE] + list(list_devices("output"))
         ins = [NONE] + list(list_devices("input"))
@@ -921,6 +1127,11 @@ class App(ctk.CTk):
         ctk.CTkButton(row, text="Удалить VB-CABLE", fg_color="#444444", hover_color="#555555",
                       command=self.uninstall_cable_async).pack(side="left", padx=4)
         ctk.CTkButton(tab, text="Сохранить", command=self.save_settings).pack(pady=14)
+
+    def live_save(self, key, value):
+        """Ключ и модель применяются сразу при вводе или вставке, без кнопки «Сохранить»."""
+        self.cfg[key] = value or (DEFAULT_MODEL if key == "model" else "")
+        save_cfg(self.cfg)
 
     def save_settings(self):
         un = lambda v: "" if v == NONE else v

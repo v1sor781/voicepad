@@ -22,7 +22,26 @@ jobs:
         run: pip install customtkinter sounddevice soundfile numpy requests keyboard pyinstaller
 
       - name: Build exe
-        run: pyinstaller --noconsole --onefile --name VoicePad --collect-all customtkinter --collect-all _sounddevice_data --collect-all _soundfile_data voicepad.py
+        run: pyinstaller --noconsole --onefile --name VoicePad --collect-all customtkinter --collect-all _sounddevice_data --collect-all _soundfile_data --icon voicepad.ico --add-data "voicepad.ico;." voicepad.py
+
+      - name: Check that the exe has an embedded icon
+        run: |
+          python -c "import pefile; pe = pefile.PE('dist/VoicePad.exe'); ids = [e.id for e in pe.DIRECTORY_ENTRY_RESOURCE.entries]; print('resource types', ids); assert 14 in ids, 'icon is not embedded in the exe'"
+
+      - name: Smoke test (run the built exe)
+        shell: pwsh
+        run: |
+          $env:VOICEPAD_SMOKE = "$PWD\smoke.txt"
+          $p = Start-Process -FilePath "dist\VoicePad.exe" -PassThru
+          if (-not $p.WaitForExit(40000)) {
+            $p.Kill()
+            Write-Error "VoicePad did not exit in 40 s: it probably crashed and shows an error dialog"
+            exit 1
+          }
+          if (-not (Test-Path smoke.txt)) { Write-Error "No smoke result: the app exited before the self-test"; exit 1 }
+          $r = (Get-Content smoke.txt -Raw).Trim()
+          Write-Host $r
+          if ($r -ne "ok") { exit 1 }
 
       - name: Build installer
         run: |
