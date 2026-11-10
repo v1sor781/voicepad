@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VoicePad — саундпад и озвучка текста для Windows</title>
-<meta name="description" content="VoicePad — бесплатный саундпад для Windows с озвучкой текста нейросетью. Звук уходит в виртуальный микрофон, поэтому его слышно в играх, Discord и звонках.">
+<title>VoicePad — проект саундпада и озвучки для Windows</title>
+<meta name="description" content="VoicePad — проект саундпада для Windows с озвучкой текста нейросетью. Сейчас приложение в закрытой бете: публичных сборок пока нет, но за разработкой можно следить на GitHub.">
 <meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="VoicePad">
-<meta property="og:title" content="VoicePad — твой голос и звуки в игре">
-<meta property="og:description" content="Озвучка текста нейросетью и саундпад с горячими клавишами. Windows 10/11, бесплатно.">
+<meta property="og:title" content="VoicePad — проект голосового саундпада для Windows">
+<meta property="og:description" content="Озвучка текста нейросетью и саундпад с горячими клавишами. Приложение в закрытой бете, публичный релиз — позже.">
 <meta property="og:url" content="https://voicepad.cc.cd/">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%235b8cff'/%3E%3Cpath d='M16 18h11l5 19 5-19h11L37 46H27z' fill='white'/%3E%3C/svg%3E">
@@ -20,7 +20,7 @@
     --bg:#0e1116; --surface:#151a21; --card:#1b212b; --card-hover:#232b38;
     --border:#28303d; --text:#e6ebf2; --muted:#8a94a6;
     --accent:#5b8cff; --accent-hover:#7aa2ff; --accent-soft:#243356;
-    --danger:#e05a5a; --success:#42c98a;
+    --danger:#e05a5a; --success:#42c98a; --warn:#f0b429;
     --nav-bg:rgba(14,17,22,.82);
     --radius:16px; --max:1120px;
     --shadow:0 24px 70px rgba(0,0,0,.45);
@@ -31,7 +31,7 @@
       --bg:#f5f7fb; --surface:#ffffff; --card:#ffffff; --card-hover:#eef2f9;
       --border:#dce3ef; --text:#121821; --muted:#5b6678;
       --accent:#2f63d8; --accent-hover:#1f4fbd; --accent-soft:#e3ebff;
-      --danger:#c93f3f; --success:#1c9a63;
+      --danger:#c93f3f; --success:#1c9a63; --warn:#b7791f;
       --nav-bg:rgba(245,247,251,.86);
       --shadow:0 20px 55px rgba(20,35,70,.14);
     }
@@ -80,7 +80,26 @@
   .nav-links { display:flex; align-items:center; gap:20px; margin-left:auto; }
   .nav-links a { color:var(--muted); text-decoration:none; font-size:14px; transition:color .16s; }
   .nav-links a:hover { color:var(--text); }
-  .nav .btn { padding:9px 16px; font-size:14px; }
+
+  /* ---------- метки состояния ---------- */
+  .pill {
+    display:inline-flex; align-items:center; gap:9px;
+    padding:7px 14px; border-radius:999px;
+    border:1px solid var(--border); background:var(--surface);
+    color:var(--muted); font-size:13px; white-space:nowrap;
+  }
+  .dot {
+    width:8px; height:8px; border-radius:50%; background:var(--success);
+    box-shadow:0 0 0 4px rgba(66,201,138,.16); flex:none;
+  }
+  .pill.warn .dot { background:var(--warn); box-shadow:0 0 0 4px rgba(240,180,41,.18); }
+  .chip {
+    display:inline-block; padding:3px 10px; border-radius:999px;
+    font-size:12px; font-weight:600; letter-spacing:.01em;
+  }
+  .chip.done { background:rgba(66,201,138,.14); color:var(--success); }
+  .chip.wip { background:rgba(240,180,41,.14); color:var(--warn); }
+  .chip.next { background:var(--accent-soft); color:var(--accent); }
 
   /* ---------- кнопки ---------- */
   .btn {
@@ -97,7 +116,6 @@
   .btn.primary:hover { background:var(--accent-hover); transform:translateY(-1px); }
   .btn.ghost { background:var(--surface); color:var(--text); border-color:var(--border); }
   .btn.ghost:hover { background:var(--card-hover); }
-  .btn.small { padding:10px 16px; font-size:14px; }
 
   /* ---------- герой ---------- */
   .hero {
@@ -109,10 +127,6 @@
     padding:6px 13px; border-radius:999px;
     border:1px solid var(--border); background:var(--surface);
     color:var(--muted); font-size:13px;
-  }
-  .dot {
-    width:8px; height:8px; border-radius:50%; background:var(--success);
-    box-shadow:0 0 0 4px rgba(66,201,138,.16);
   }
   h1 {
     margin:20px 0 16px; font-size:clamp(34px, 5vw, 56px);
@@ -127,7 +141,8 @@
   .meta { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:18px; color:var(--muted); font-size:13px; }
   .meta span { display:inline-flex; align-items:center; gap:7px; }
   .meta svg { color:var(--success); }
-  .note { margin:14px 0 0; color:var(--muted); font-size:12.5px; max-width:520px; }
+  .note { margin:16px 0 0; color:var(--muted); font-size:12.5px; max-width:520px; }
+  .note b { color:var(--text); }
 
   /* ---------- макет окна ---------- */
   .mock {
@@ -185,6 +200,17 @@
   }
   .feature h3 { margin:0 0 6px; font-size:16px; letter-spacing:-.01em; }
   .feature p { margin:0; color:var(--muted); font-size:14px; }
+
+  /* ---------- статус ---------- */
+  .status-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
+  .status-card {
+    padding:22px 20px; border-radius:var(--radius);
+    background:var(--card); border:1px solid var(--border);
+  }
+  .status-card h3 { margin:12px 0 10px; font-size:16px; }
+  .status-card ul { margin:0; padding-left:18px; color:var(--muted); font-size:14px; }
+  .status-card li { margin-bottom:6px; }
+  .status-card li:last-child { margin-bottom:0; }
 
   .steps { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
   .step {
@@ -267,11 +293,12 @@
     .hero { grid-template-columns:1fr; gap:38px; padding-top:52px; }
     .mock { max-width:560px; }
     .grid { grid-template-columns:repeat(2, 1fr); }
+    .status-grid, .steps { grid-template-columns:1fr; }
     .split { grid-template-columns:1fr; }
     .nav-links { display:none; }
   }
   @media (max-width: 700px) {
-    .grid, .steps { grid-template-columns:1fr; }
+    .grid { grid-template-columns:1fr; }
     .section { padding:44px 18px; }
     .hero { padding:42px 18px 26px; }
     .nav-inner { padding:10px 18px; }
@@ -295,13 +322,14 @@
       <span>VoicePad</span>
     </a>
     <nav class="nav-links" aria-label="Разделы страницы">
+      <a href="#status">Статус</a>
       <a href="#features">Возможности</a>
-      <a href="#how">Как начать</a>
+      <a href="#how">Как это работает</a>
       <a href="#requirements">Требования</a>
       <a href="#faq">Вопросы</a>
       <a href="https://github.com/v1sor781/voicepad" rel="noopener">GitHub</a>
     </nav>
-    <a class="btn primary" href="#download">Скачать</a>
+    <span class="pill warn"><span class="dot" aria-hidden="true"></span>Закрытая бета</span>
   </div>
 </header>
 
@@ -310,7 +338,7 @@
     <div>
       <div class="badge">
         <span class="dot" aria-hidden="true"></span>
-        Windows 10/11 · <span data-version>актуальная версия</span>
+        Проект в разработке · Windows 10/11
       </div>
       <h1>Твой голос и звуки — <span class="grad">в игре и Discord</span></h1>
       <p class="lead">
@@ -319,26 +347,24 @@
         и горячих клавиш.
       </p>
 
-      <div class="actions" id="download">
-        <a class="btn primary" id="setup" href="#">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
-          Скачать установщик
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/v1sor781/voicepad" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.42c.58.1.79-.25.79-.55v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.14v3.17c0 .3.21.66.8.55A11.5 11.5 0 0 0 12 .5z"/></svg>
+          Следить на GitHub
         </a>
-        <a class="btn ghost" id="portable" href="#">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
-          Портативная версия .exe
-        </a>
+        <a class="btn ghost" href="#features">Что уже готово</a>
       </div>
 
       <div class="meta">
-        <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Бесплатно</span>
-        <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Около 30 МБ</span>
+        <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Планируется бесплатно</span>
+        <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Открытый исходный код</span>
         <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Без рекламы и телеметрии</span>
       </div>
 
       <p class="note">
-        Файл не подписан, поэтому Windows SmartScreen может предупредить.
-        Нажмите «Подробнее» → «Выполнить в любом случае». Исходный код открыт на GitHub.
+        <b>Публичных сборок пока нет.</b> Приложение проходит закрытое тестирование: мы доводим
+        до стабильности интерфейс, установку и работу с виртуальным микрофоном. Когда всё будет
+        готово, здесь появятся ссылки на скачивание.
       </p>
     </div>
 
@@ -373,6 +399,46 @@
           </div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section class="section" id="status">
+    <div class="section-head">
+      <div class="eyebrow">Статус разработки</div>
+      <h2>Где сейчас проект</h2>
+      <p>Приложение уже работает, но мы не считаем его готовым к публичному релизу. Вот что сделано и что впереди.</p>
+    </div>
+
+    <div class="status-grid">
+      <article class="status-card">
+        <span class="chip done">Готово</span>
+        <h3>Основные функции</h3>
+        <ul>
+          <li>Озвучка текста через Fish Audio</li>
+          <li>Саундпад с горячими клавишами</li>
+          <li>Фразы, история, проверка сигнала</li>
+          <li>Новый интерфейс с боковым меню</li>
+        </ul>
+      </article>
+      <article class="status-card">
+        <span class="chip wip">В работе</span>
+        <h3>До стабильного релиза</h3>
+        <ul>
+          <li>Установка и обновление без сюрпризов</li>
+          <li>Надёжность работы с аудиоустройствами</li>
+          <li>Подсказки при первом запуске</li>
+          <li>Исправление найденных в бете ошибок</li>
+        </ul>
+      </article>
+      <article class="status-card">
+        <span class="chip next">Дальше</span>
+        <h3>Публичный выпуск</h3>
+        <ul>
+          <li>Открытая страница скачивания</li>
+          <li>Инструкция по настройке за пару минут</li>
+          <li>Список изменений по версиям</li>
+        </ul>
+      </article>
     </div>
   </section>
 
@@ -436,26 +502,26 @@
 
   <section class="section" id="how">
     <div class="section-head">
-      <div class="eyebrow">Как начать</div>
+      <div class="eyebrow">Как это работает</div>
       <h2>Три шага до первого звука</h2>
-      <p>Установка занимает пару минут. Виртуальный микрофон программа поставит сама.</p>
+      <p>Так будет выглядеть настройка после публичного релиза. Ничего сложного — виртуальный микрофон программа поставит сама.</p>
     </div>
 
     <div class="steps">
       <article class="step">
         <div class="num">1</div>
-        <h3>Установите VoicePad</h3>
-        <p>Скачайте установщик или портативную версию. Windows может показать предупреждение — это нормально для неподписанного файла.</p>
-      </article>
-      <article class="step">
-        <div class="num">2</div>
         <h3>Подключите микрофон</h3>
         <p>Если VB-CABLE ещё нет, программа предложит установить его одной кнопкой. Windows попросит подтвердить установку драйвера.</p>
       </article>
       <article class="step">
-        <div class="num">3</div>
+        <div class="num">2</div>
         <h3>Вставьте API-ключ</h3>
-        <p>Создайте ключ на Fish Audio и вставьте его во вкладке «Настройки». В игре выберите микрофон <b>CABLE Output</b>.</p>
+        <p>Создайте бесплатный ключ на Fish Audio и вставьте его во вкладке «Настройки». По умолчанию используется бесплатная модель.</p>
+      </article>
+      <article class="step">
+        <div class="num">3</div>
+        <h3>Выберите CABLE Output</h3>
+        <p>В настройках игры или Discord выберите микрофон <b>CABLE Output</b> — и озвучка станет слышна собеседникам.</p>
       </article>
     </div>
   </section>
@@ -463,7 +529,7 @@
   <section class="section" id="requirements">
     <div class="section-head">
       <div class="eyebrow">Требования</div>
-      <h2>Что нужно для работы</h2>
+      <h2>Что понадобится</h2>
       <p>Ничего сверх обычного Windows-ПК. Синтез речи выполняется в облаке Fish Audio.</p>
     </div>
 
@@ -472,7 +538,7 @@
         <h3>Минимальные требования</h3>
         <ul class="checks">
           <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Windows 10 или 11</b>, 64-битная версия</span></li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Около 30 МБ</b> на диске для портативной версии</span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Около 30 МБ</b> на диске для программы</span></li>
           <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Интернет</b> для синтеза речи через Fish Audio</span></li>
           <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Ключ Fish Audio</b> — подойдёт бесплатная модель</span></li>
           <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>VB-CABLE</b> — бесплатный драйвер, ставится из программы</span></li>
@@ -536,34 +602,54 @@
     <div class="section-head">
       <div class="eyebrow">Вопросы</div>
       <h2>Частые вопросы</h2>
-      <p>Если ответа нет — загляните в <a href="https://github.com/v1sor781/voicepad" rel="noopener">репозиторий на GitHub</a>.</p>
+      <p>Если ответа нет — спросите в <a href="https://github.com/v1sor781/voicepad/issues" rel="noopener">обсуждениях на GitHub</a>.</p>
     </div>
 
     <div class="faq">
-      <details>
-        <summary>Windows пишет, что файл небезопасен. Что делать?</summary>
+      <details open>
+        <summary>Когда появится публичная версия?</summary>
         <div class="answer">
-          <p>Файл не подписан сертификатом, поэтому SmartScreen предупреждает о незнакомом издателе. Нажмите «Подробнее» → «Выполнить в любом случае».</p>
-          <p>Скачивайте только с этого сайта или со страницы релизов GitHub — там лежат те же файлы, собранные автоматически из исходного кода.</p>
+          <p>Точной даты пока нет. Приложение проходит закрытое тестирование: сначала нужно убедиться, что установка, обновление и работа с виртуальным микрофоном ведут себя предсказуемо на разных компьютерах.</p>
+          <p>О выходе сообщим в репозитории на GitHub — там же будут ссылки на скачивание.</p>
         </div>
       </details>
 
       <details>
-        <summary>Нужен ли платный аккаунт Fish Audio?</summary>
+        <summary>Можно ли попробовать прямо сейчас?</summary>
         <div class="answer">
-          <p>Нет. Достаточно бесплатного ключа с <a href="https://fish.audio/app/api-keys" rel="noopener">fish.audio/app/api-keys</a>. По умолчанию используется бесплатная модель <code>s2.1-pro-free</code>.</p>
-          <p>Если хочется больше голосов или скорости — можно подключить платную модель и указать её в настройках.</p>
+          <p>Публичных сборок нет: мы не хотим, чтобы люди ставили сырую версию и сталкивались с недоделками.</p>
+          <p>Исходный код открыт, поэтому при желании приложение можно собрать самостоятельно — но это вариант для опытных пользователей, без поддержки и гарантий.</p>
         </div>
       </details>
 
       <details>
-        <summary>В игре меня не слышно. Что проверить?</summary>
+        <summary>Сколько будет стоить программа?</summary>
         <div class="answer">
-          <p>Откройте вкладку «Проверка» и запустите тесты по очереди:</p>
-          <p>1. «Тест сигнала» — доходит ли звук до CABLE Output.<br>
-             2. «Что слышит игра» — идёт ли сигнал в виртуальный микрофон.<br>
-             3. «Мой микрофон» — работает ли ваш настоящий микрофон.</p>
-          <p>В настройках игры или Discord выберите микрофон <b>CABLE Output</b>, а в VoicePad — выход <b>CABLE Input</b> и ненулевую громкость.</p>
+          <p>Планируется, что VoicePad будет бесплатным. Синтез речи выполняет Fish Audio: у сервиса есть бесплатный ключ и бесплатная модель <code>s2.1-pro-free</code>, которую программа использует по умолчанию.</p>
+          <p>Если понадобится больше голосов или скорости, в Fish Audio можно подключить платный тариф.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Зачем нужен виртуальный микрофон?</summary>
+        <div class="answer">
+          <p>Windows не даёт программе говорить в настоящий микрофон напрямую. Виртуальный драйвер VB-CABLE создаёт пару устройств: в CABLE Input программа отправляет звук, а игра видит его как микрофон CABLE Output.</p>
+          <p>Драйвер бесплатный, устанавливается из самой программы.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Будет ли работать в любой игре и Discord?</summary>
+        <div class="answer">
+          <p>Да. Для игры или Discord виртуальный микрофон выглядит как обычное устройство записи. Достаточно выбрать <b>CABLE Output</b> в настройках звука приложения.</p>
+          <p>Аналогично — с OBS, TeamSpeak, Zoom и другими программами, где можно выбрать микрофон.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Нужен ли мощный компьютер?</summary>
+        <div class="answer">
+          <p>Нет. Речь синтезируется на серверах Fish Audio, программа только отправляет текст и проигрывает готовый файл. Достаточно обычного ПК на Windows 10 или 11.</p>
         </div>
       </details>
 
@@ -571,53 +657,22 @@
         <summary>Куда сохраняются ключ, настройки и озвучка?</summary>
         <div class="answer">
           <p>Всё лежит в папке <code>%USERPROFILE%\.voicepad</code>: настройки — в <code>config.json</code>, готовые wav-файлы — в подпапке <code>tts</code>.</p>
-          <p>При удалении программы эти файлы остаются, пока вы не удалите папку вручную. Ключ API никуда не отправляется, кроме Fish Audio.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Можно ли пользоваться без виртуального микрофона?</summary>
-        <div class="answer">
-          <p>Да. Программа проиграет озвучку в ваши наушники или динамики. Но в игре, Discord или звонке её не услышат: для этого звук должен попасть в микрофонный вход через VB-CABLE.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Работает ли с любой игрой и Discord?</summary>
-        <div class="answer">
-          <p>Да. Для игры или Discord виртуальный микрофон выглядит как обычное устройство записи. Достаточно выбрать <b>CABLE Output</b> в настройках звука приложения.</p>
-          <p>Аналогично работает с OBS, TeamSpeak, Zoom и другими программами, где можно выбрать микрофон.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Чем установщик отличается от портативной версии?</summary>
-        <div class="answer">
-          <p><b>Установщик</b> создаёт ярлыки в меню «Пуск» и на рабочем столе, добавляет деинсталлятор и ставит программу в стандартную папку.</p>
-          <p><b>Портативная версия</b> — один exe-файл. Её можно положить на флешку и запускать без установки. Настройки всё равно хранятся в профиле пользователя.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Как обновить VoicePad?</summary>
-        <div class="answer">
-          <p>Скачайте новый установщик и запустите его поверх старой версии — настройки и фразы сохранятся. Для портативной версии просто замените exe-файл.</p>
-          <p>Актуальную версию всегда можно посмотреть на <a href="https://github.com/v1sor781/voicepad/releases" rel="noopener">странице релизов</a>.</p>
+          <p>Ключ API никуда не отправляется, кроме Fish Audio. Рекламы, телеметрии и сторонней аналитики в программе нет.</p>
         </div>
       </details>
 
       <details>
         <summary>Есть ли версия для macOS или Linux?</summary>
         <div class="answer">
-          <p>Нет, VoicePad работает только на Windows 10 и 11. Виртуальный микрофон и захват горячих клавиш завязаны на Windows-драйверы и API.</p>
+          <p>Нет и не планируется. Виртуальный микрофон и захват горячих клавиш завязаны на Windows-драйверы и API.</p>
         </div>
       </details>
 
       <details>
-        <summary>Как назначить горячую клавишу?</summary>
+        <summary>Как помочь проекту?</summary>
         <div class="answer">
-          <p>Нажмите кнопку «Клавиша» рядом со звуком или фразой и введите сочетание. Оно сразу начнёт работать, даже когда окно программы свёрнуто.</p>
-          <p>Чтобы снять назначение, нажмите <code>Esc</code> во время записи сочетания.</p>
+          <p>Проще всего — поставить звёздочку на <a href="https://github.com/v1sor781/voicepad" rel="noopener">GitHub</a>: так видно, что проект нужен.</p>
+          <p>Ещё можно рассказать об идее друзьям, предложить улучшение или сообщить об ошибке в <a href="https://github.com/v1sor781/voicepad/issues" rel="noopener">Issues</a>.</p>
         </div>
       </details>
     </div>
@@ -626,17 +681,15 @@
   <section class="cta">
     <div class="cta-inner">
       <div>
-        <h2>Готовы попробовать?</h2>
-        <p>Скачайте VoicePad и озвучьте первую фразу за пару минут. Версия <span data-version>актуальная</span>.</p>
+        <h2>Следите за проектом</h2>
+        <p>Разработка открытая: изменения, идеи и дата публичного релиза — в репозитории на GitHub.</p>
       </div>
       <div class="actions">
-        <a class="btn primary" id="setup2" href="#">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
-          Скачать установщик
+        <a class="btn primary" href="https://github.com/v1sor781/voicepad" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.42c.58.1.79-.25.79-.55v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.14v3.17c0 .3.21.66.8.55A11.5 11.5 0 0 0 12 .5z"/></svg>
+          Открыть GitHub
         </a>
-        <a class="btn ghost" id="portable2" href="#">
-          Портативная версия
-        </a>
+        <a class="btn ghost" href="https://github.com/v1sor781/voicepad/issues" rel="noopener">Идеи и ошибки</a>
       </div>
     </div>
   </section>
@@ -644,38 +697,14 @@
 
 <footer>
   <div class="foot">
-    <div>© 2026 VoicePad. Для Windows 10/11.</div>
+    <div>© 2026 VoicePad · проект в разработке. Для Windows 10/11.</div>
     <div class="foot-links">
       <a href="https://github.com/v1sor781/voicepad" rel="noopener">GitHub</a>
-      <a href="https://github.com/v1sor781/voicepad/releases" rel="noopener">Релизы</a>
+      <a href="https://github.com/v1sor781/voicepad/issues" rel="noopener">Issues</a>
       <a href="https://fish.audio" rel="noopener">Fish Audio</a>
       <a href="https://vb-audio.com/Cable/" rel="noopener">VB-CABLE</a>
     </div>
   </div>
 </footer>
-
-<script>
-  const REPO = "v1sor781/voicepad";
-  const base = "https://github.com/" + REPO + "/releases/latest/download/";
-
-  document.getElementById("setup").href = base + "VoicePad-Setup.exe";
-  document.getElementById("portable").href = base + "VoicePad.exe";
-  document.getElementById("setup2").href = base + "VoicePad-Setup.exe";
-  document.getElementById("portable2").href = base + "VoicePad.exe";
-
-  // Показываем номер последнего релиза, если GitHub доступен.
-  fetch("https://api.github.com/repos/" + REPO + "/releases/latest", {
-    headers: { "Accept": "application/vnd.github+json" }
-  })
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (rel) {
-      if (!rel || !rel.tag_name) return;
-      const version = rel.tag_name.replace(/^v\.?/, "v");
-      document.querySelectorAll("[data-version]").forEach(function (el) {
-        el.textContent = version;
-      });
-    })
-    .catch(function () { /* остаётся текст «актуальная версия» */ });
-</script>
 </body>
 </html>
