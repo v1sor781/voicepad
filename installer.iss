@@ -1,5 +1,5 @@
 ﻿#define MyAppName "VoicePad"
-#define MyAppVersion "1.0"
+#define MyAppVersion "1.0.4"
 
 [Setup]
 AppId={{B7C3A5E2-4D1F-4C8A-9E6B-2F0D7A1C5E93}
