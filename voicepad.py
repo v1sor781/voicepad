@@ -38,24 +38,32 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 NONE = "— нет —"
 HISTORY_MAX = 50
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 DEFAULT_MODEL = "s2.1-pro-free"  # бесплатная модель Fish Audio API; платная: "s2-pro"
 
 # ---- палитра интерфейса (совпадает со страницей скачивания)
-BG = "#0e1116"
-SURFACE = "#151a21"
-CARD = "#1b212b"
-CARD_HOVER = "#232b38"
-BORDER = "#28303d"
-TEXT = "#e6ebf2"
-MUTED = "#8a94a6"
+# ---- оформление: одна палитра и одна шкала отступов на всё приложение
+BG = "#0b0e13"
+SURFACE = "#12161d"
+CARD = "#161b23"
+CARD_HOVER = "#1e242e"
+BORDER = "#242c39"
+BORDER_SOFT = "#1d242f"
+TEXT = "#eef2f8"
+MUTED = "#8b96a8"
 ACCENT = "#5b8cff"
 ACCENT_HOVER = "#7aa2ff"
-ACCENT_SOFT = "#243356"
+ACCENT_SOFT = "#1e2d4d"
 DANGER = "#e05a5a"
 DANGER_HOVER = "#c94848"
 DANGER_SOFT = "#3a2226"
 SUCCESS = "#42c98a"
+WARN = "#f0b429"
+FONT = "Segoe UI"
+
+# отступы кратны 4, поэтому все блоки стоят на одной сетке
+S1, S2, S3, S4, S5, S6 = 4, 8, 12, 16, 24, 32
+R1, R2, R3 = 8, 10, 14        # радиусы: кнопки, поля, карточки
 DEFAULT_CFG = {
     "api_key": "",
     "model": DEFAULT_MODEL,  # заголовок "model" в запросе к Fish Audio
@@ -215,8 +223,30 @@ def resource_path(name):
     return Path(getattr(sys, "_MEIPASS", program_dir())) / name
 
 
+def use_dark_titlebar(window):
+    """Тёмная полоса заголовка окна: приложение не светится белым на фоне системы."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetParent(window.winfo_id()) or window.winfo_id()
+        dwm = ctypes.windll.dwmapi
+        on = ctypes.c_int(1)
+        for attr in (20, 19):            # DWMWA_USE_IMMERSIVE_DARK_MODE (Win11 / Win10)
+            if dwm.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(on), ctypes.sizeof(on)) == 0:
+                break
+        caption = ctypes.c_int(0x00130E0B)   # COLORREF: цвет фона приложения
+        border = ctypes.c_int(0x00392C24)    # COLORREF: цвет рамки
+        dwm.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(caption), ctypes.sizeof(caption))
+        dwm.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(border), ctypes.sizeof(border))
+    except Exception:
+        pass
+
+
 def set_window_icon(window, ico):
     """Ставит иконку окну: через tkinter и напрямую через Windows API (CTk иногда подменяет свою)."""
+    use_dark_titlebar(window)
     try:
         window.iconbitmap(str(ico))
     except Exception:
@@ -326,26 +356,34 @@ def note_label(parent, text, wraplength, **kw):
 
 def card(parent, **kw):
     """Карточка в общем стиле приложения."""
-    opts = dict(fg_color=CARD, corner_radius=12, border_width=1, border_color=BORDER)
+    opts = dict(fg_color=CARD, corner_radius=R3, border_width=1, border_color=BORDER_SOFT)
     opts.update(kw)
     return ctk.CTkFrame(parent, **opts)
 
 
 def card_title(parent, text):
     return ctk.CTkLabel(parent, text=text, anchor="w", text_color=TEXT,
-                        font=("Segoe UI", 15, "bold"))
+                        font=(FONT, 14, "bold"))
 
 
 def muted_label(parent, text, **kw):
     kw.setdefault("text_color", MUTED)
     kw.setdefault("anchor", "w")
-    kw.setdefault("font", ("Segoe UI", 12))
+    kw.setdefault("font", (FONT, 12))
     kw.setdefault("justify", "left")
     try:
         return ctk.CTkLabel(parent, text=text, **kw)
     except ValueError:
         kw.pop("justify", None)
         return ctk.CTkLabel(parent, text=text, **kw)
+
+
+def divider(parent, pady=(S4, S4)):
+    """Тонкая линия-разделитель внутри карточек."""
+    line = ctk.CTkFrame(parent, fg_color=BORDER_SOFT, height=1, corner_radius=0)
+    line.pack(fill="x", pady=pady)
+    line.pack_propagate(False)
+    return line
 
 
 SILENT_LEVEL = 0.003   # ниже: полная тишина (около -50 дБ)
@@ -549,33 +587,58 @@ class Player:
 class NavView(ctk.CTkFrame):
     """Боковое меню и область содержимого. API совместим с CTkTabview: add/tab/set/get."""
 
+    ICONS = {"Звуки": "♪", "Фразы": "☰", "Голос ИИ": "✧",
+             "История": "◷", "Настройки": "⚙", "Проверка": "◎"}
+
     def __init__(self, master, **kw):
         super().__init__(master, fg_color="transparent", **kw)
         self._frames = {}
         self._buttons = {}
         self._current = None
         self.on_show = {}   # раздел -> функция, вызываемая при открытии
+        self._f_nav = ctk.CTkFont(family=FONT, size=13)
+        self._f_nav_bold = ctk.CTkFont(family=FONT, size=13, weight="bold")
 
-        self.sidebar = ctk.CTkFrame(self, fg_color=SURFACE, corner_radius=14,
-                                    border_width=1, border_color=BORDER, width=200)
-        self.sidebar.pack(side="left", fill="y", padx=(0, 14))
+        self.sidebar = ctk.CTkFrame(self, fg_color=SURFACE, corner_radius=R3,
+                                    border_width=1, border_color=BORDER_SOFT, width=216)
+        self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
 
+        # шапка меню: знак и название
+        brand = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        brand.pack(fill="x", padx=S4, pady=(S5, S5))
+        mark = ctk.CTkFrame(brand, width=38, height=38, corner_radius=11, fg_color=ACCENT)
+        mark.pack(side="left")
+        mark.pack_propagate(False)
+        ctk.CTkLabel(mark, text="V", text_color="#ffffff",
+                     font=ctk.CTkFont(family=FONT, size=20, weight="bold")).pack(expand=True)
+        titles = ctk.CTkFrame(brand, fg_color="transparent")
+        titles.pack(side="left", padx=(S3, 0))
+        ctk.CTkLabel(titles, text="VoicePad", anchor="w", text_color=TEXT,
+                     font=ctk.CTkFont(family=FONT, size=16, weight="bold")).pack(anchor="w")
+        ctk.CTkLabel(titles, text=f"версия {APP_VERSION}", anchor="w", text_color=MUTED,
+                     font=ctk.CTkFont(family=FONT, size=11)).pack(anchor="w")
+
         ctk.CTkLabel(self.sidebar, text="РАЗДЕЛЫ", anchor="w", text_color=MUTED,
-                     font=("Segoe UI", 11, "bold")).pack(fill="x", padx=18, pady=(16, 8))
+                     font=ctk.CTkFont(family=FONT, size=10, weight="bold")
+                     ).pack(fill="x", padx=(S4 + S1), pady=(0, S2))
+
+        # сюда App кладёт кнопку «Стоп» и назначение клавиши
+        self.footer = ctk.CTkFrame(self.sidebar, fg_color="transparent")
 
         self.content = ctk.CTkFrame(self, fg_color="transparent")
-        self.content.pack(side="left", fill="both", expand=True)
+        self.content.pack(side="left", fill="both", expand=True, padx=(S5, 0))
 
     def add(self, name):
         if name in self._frames:
             return self._frames[name]
         frame = ctk.CTkFrame(self.content, fg_color="transparent")
-        btn = ctk.CTkButton(self.sidebar, text=name, anchor="w", height=40, corner_radius=10,
+        btn = ctk.CTkButton(self.sidebar, text=f"{self.ICONS.get(name, '•')}    {name}",
+                            anchor="w", height=40, corner_radius=R2,
                             fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
-                            font=("Segoe UI", 14),
+                            font=self._f_nav,
                             command=lambda n=name: self.set(n))
-        btn.pack(fill="x", padx=10, pady=2)
+        btn.pack(fill="x", padx=S2, pady=1)
         self._frames[name] = frame
         self._buttons[name] = btn
         if self._current is None:
@@ -591,14 +654,14 @@ class NavView(ctk.CTkFrame):
         self._current = name
         for n, frame in self._frames.items():
             if n == name:
-                frame.pack(fill="both", expand=True)
+                frame.pack(fill="both", expand=True, padx=S5, pady=(S4, S2))
             else:
                 frame.pack_forget()
         for n, btn in self._buttons.items():
             if n == name:
-                btn.configure(fg_color=ACCENT_SOFT, text_color=TEXT)
+                btn.configure(fg_color=ACCENT_SOFT, text_color=TEXT, font=self._f_nav_bold)
             else:
-                btn.configure(fg_color="transparent", text_color=MUTED)
+                btn.configure(fg_color="transparent", text_color=MUTED, font=self._f_nav)
         hook = self.on_show.get(name)
         if hook:
             try:
@@ -619,13 +682,15 @@ class App(ctk.CTk):
         self.callback_errors = []
         self.meter = {"running": False, "level": 0.0}
         self.title("VoicePad")
-        self.geometry("960x780")
-        self.minsize(860, 620)
-        self.f_title = ctk.CTkFont(family="Segoe UI", size=18, weight="bold")
-        self.f_h2 = ctk.CTkFont(family="Segoe UI", size=16, weight="bold")
-        self.f_body = ctk.CTkFont(family="Segoe UI", size=13)
-        self.f_small = ctk.CTkFont(family="Segoe UI", size=12)
-        self.f_logo = ctk.CTkFont(family="Segoe UI", size=22, weight="bold")
+        self.geometry("1020x800")
+        self.minsize(900, 640)
+        self.f_page = ctk.CTkFont(family=FONT, size=22, weight="bold")
+        self.f_title = ctk.CTkFont(family=FONT, size=17, weight="bold")
+        self.f_h2 = ctk.CTkFont(family=FONT, size=15, weight="bold")
+        self.f_body = ctk.CTkFont(family=FONT, size=13)
+        self.f_small = ctk.CTkFont(family=FONT, size=12)
+        self.f_tiny = ctk.CTkFont(family=FONT, size=11)
+        self.f_logo = ctk.CTkFont(family=FONT, size=20, weight="bold")
         self.cfg = load_cfg()
         self.engine = Player(self.cfg, self.report)
         self.voice_menus = []
@@ -639,6 +704,7 @@ class App(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.install_clipboard_shortcuts()
         ico = resource_path("voicepad.ico")
+        self.after(250, lambda: use_dark_titlebar(self))
         if ico.exists():
             for delay in (250, 900):  # CTk ставит свою иконку с задержкой, поэтому повторяем
                 self.after(delay, lambda: self.apply_window_icon(ico))
@@ -886,22 +952,21 @@ class App(ctk.CTk):
                        "Микрофон слышно, но очень тихо. Увеличьте его громкость в параметрах Windows")
 
     def _build_check(self, tab):
-        body = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0)
+        body = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0,
+                                      scrollbar_button_color=BORDER,
+                                      scrollbar_button_hover_color=CARD_HOVER)
         body.pack(fill="both", expand=True)
-        ctk.CTkLabel(body, text="Проверка", anchor="w", text_color=TEXT,
-                     font=self.f_h2).pack(anchor="w")
-        muted_label(body, "Проверьте, слышит ли игра ваш голос и звуки через виртуальный микрофон."
-                    ).pack(anchor="w", pady=(2, 0))
+        self._page_header(body, "Проверка",
+                          "Проверьте, слышит ли игра ваш голос и звуки через виртуальный микрофон.")
 
         meter = card(body)
-        meter.pack(fill="x", pady=(14, 0))
-        m = ctk.CTkFrame(meter, fg_color="transparent")
-        m.pack(fill="x", padx=16, pady=16)
+        meter.pack(fill="x")
+        m = self._card_body(meter)
         card_title(m, "Уровень сигнала").pack(anchor="w")
         self.level_bar = ctk.CTkProgressBar(m, height=14, corner_radius=7,
                                             fg_color=SURFACE, progress_color=ACCENT)
         self.level_bar.set(0)
-        self.level_bar.pack(fill="x", pady=(10, 10))
+        self.level_bar.pack(fill="x", pady=(S3, S3))
         self.test_result = note_label(m, wraplength=700, text="Результат появится здесь.",
                                       text_color=MUTED, font=self.f_small)
         self.test_result.pack(fill="x")
@@ -915,15 +980,12 @@ class App(ctk.CTk):
         )
         for kind, title, desc in tests:
             c = card(body)
-            c.pack(fill="x", pady=(10, 0))
-            i = ctk.CTkFrame(c, fg_color="transparent")
-            i.pack(fill="x", padx=16, pady=16)
+            c.pack(fill="x", pady=(S3, 0))
+            i = self._card_body(c)
             card_title(i, title).pack(anchor="w")
-            muted_label(i, desc, wraplength=640).pack(anchor="w", pady=(4, 10))
-            ctk.CTkButton(i, text="Запустить", width=130, height=36, corner_radius=9,
-                          fg_color=SURFACE, hover_color=CARD_HOVER, border_width=1,
-                          border_color=BORDER, text_color=TEXT, font=self.f_body,
-                          command=lambda k=kind: self.start_test(k)).pack(anchor="w")
+            muted_label(i, desc, wraplength=640).pack(anchor="w", pady=(S1, S3))
+            self._btn(i, "Запустить", lambda k=kind: self.start_test(k), width=132
+                      ).pack(anchor="w")
 
     def start_test(self, kind):
         if self.meter["running"]:
@@ -1012,41 +1074,11 @@ class App(ctk.CTk):
     # ---- построение UI
     def _build(self):
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
-        # шапка
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 10))
-
-        logo = ctk.CTkFrame(header, width=42, height=42, corner_radius=12, fg_color=ACCENT)
-        logo.pack(side="left")
-        logo.pack_propagate(False)
-        ctk.CTkLabel(logo, text="V", text_color="#ffffff", font=self.f_logo).pack(expand=True)
-
-        titles = ctk.CTkFrame(header, fg_color="transparent")
-        titles.pack(side="left", padx=12)
-        ctk.CTkLabel(titles, text="VoicePad", anchor="w", text_color=TEXT,
-                     font=self.f_title).pack(anchor="w")
-        ctk.CTkLabel(titles, text=f"саундпад и озвучка · v{APP_VERSION}", anchor="w",
-                     text_color=MUTED, font=self.f_small).pack(anchor="w")
-
-        right = ctk.CTkFrame(header, fg_color="transparent")
-        right.pack(side="right")
-        self.stop_hk_btn = ctk.CTkButton(right, width=150, height=34, corner_radius=9,
-                                         fg_color=CARD, hover_color=CARD_HOVER,
-                                         border_width=1, border_color=BORDER,
-                                         text_color=MUTED, font=self.f_small,
-                                         text=self._hk_text(self.cfg["stop_hotkey"], "Клавиша «Стоп»"),
-                                         command=self.set_stop_hotkey)
-        self.stop_hk_btn.pack(side="right", padx=(8, 0))
-        ctk.CTkButton(right, text="■  Стоп", width=104, height=34, corner_radius=9,
-                      fg_color=DANGER, hover_color=DANGER_HOVER, text_color="#ffffff",
-                      font=self.f_body,
-                      command=self.engine.stop).pack(side="right")
-
-        # разделы
+        # разделы: меню слева, содержимое справа
         self.tabs = NavView(self)
-        self.tabs.grid(row=1, column=0, sticky="nsew", padx=18, pady=(0, 10))
+        self.tabs.grid(row=0, column=0, sticky="nsew", padx=S5, pady=(S5, S2))
         for name in ("Звуки", "Фразы", "Голос ИИ", "История", "Настройки", "Проверка"):
             self.tabs.add(name)
         self._build_sounds(self.tabs.tab("Звуки"))
@@ -1057,30 +1089,81 @@ class App(ctk.CTk):
         self._build_check(self.tabs.tab("Проверка"))
         self.tabs.on_show["Настройки"] = self.refresh_device_lists
 
+        # низ меню: клавиша «Стоп» и сама кнопка
+        foot = self.tabs.footer
+        foot.pack(side="bottom", fill="x", padx=S3, pady=(S2, S3))
+        divider(foot, pady=(0, S3))
+        self.stop_hk_btn = ctk.CTkButton(foot, height=34, corner_radius=R2,
+                                         fg_color=CARD, hover_color=CARD_HOVER,
+                                         border_width=1, border_color=BORDER,
+                                         text_color=MUTED, font=self.f_small,
+                                         text=self._hk_text(self.cfg["stop_hotkey"], "Клавиша «Стоп»"),
+                                         command=self.set_stop_hotkey)
+        self.stop_hk_btn.pack(fill="x")
+        ctk.CTkButton(foot, text="■   Стоп", height=42, corner_radius=R2,
+                      fg_color=DANGER, hover_color=DANGER_HOVER, text_color="#ffffff",
+                      font=self.f_body,
+                      command=self.engine.stop).pack(fill="x", pady=(S2, 0))
+
         # строка состояния
-        status_bar = ctk.CTkFrame(self, fg_color=SURFACE, corner_radius=10,
-                                  border_width=1, border_color=BORDER, height=38)
-        status_bar.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 14))
+        status_bar = ctk.CTkFrame(self, fg_color=SURFACE, corner_radius=R2,
+                                  border_width=1, border_color=BORDER_SOFT, height=36)
+        status_bar.grid(row=1, column=0, sticky="ew", padx=S5, pady=(0, S5))
         status_bar.pack_propagate(False)
         ctk.CTkLabel(status_bar, text="●", text_color=SUCCESS,
-                     font=("Segoe UI", 10)).pack(side="left", padx=(14, 6))
+                     font=(FONT, 10)).pack(side="left", padx=(S3, S2))
         self.status = ctk.CTkLabel(status_bar, text="Готово", anchor="w",
                                    text_color=MUTED, font=self.f_small)
-        self.status.pack(side="left", fill="x", expand=True, padx=(0, 12))
+        self.status.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(status_bar, text="Ctrl+Enter — озвучить", text_color=MUTED,
+                     font=self.f_tiny).pack(side="right", padx=(0, S3))
 
     @staticmethod
     def _hk_text(hk, empty):
         return hk if hk else empty
 
+    def _btn(self, parent, text, command, kind="ghost", width=None, height=38):
+        opts = dict(text=text, command=command, height=height, corner_radius=R2,
+                    font=self.f_body)
+        if width:
+            opts["width"] = width
+        if kind == "primary":
+            opts.update(fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#ffffff")
+        elif kind == "ghost":
+            opts.update(fg_color=SURFACE, hover_color=CARD_HOVER, border_width=1,
+                        border_color=BORDER, text_color=TEXT)
+        elif kind == "danger":
+            opts.update(fg_color="transparent", hover_color=DANGER_SOFT, text_color=DANGER)
+        return ctk.CTkButton(parent, **opts)
+
+    def _page_header(self, parent, title, subtitle, actions=()):
+        """Единый заголовок раздела: крупный заголовок, подпись и кнопки справа."""
+        head = ctk.CTkFrame(parent, fg_color="transparent")
+        head.pack(fill="x", pady=(0, S4))
+        texts = ctk.CTkFrame(head, fg_color="transparent")
+        texts.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(texts, text=title, anchor="w", text_color=TEXT,
+                     font=self.f_page).pack(anchor="w")
+        muted_label(texts, subtitle, wraplength=620).pack(anchor="w", pady=(S1, 0))
+        for text, command, kind in reversed(list(actions)):
+            self._btn(head, text, command, kind).pack(side="right", padx=(S2, 0))
+        return head
+
+    def _card_body(self, parent, pad=(S5, S5)):
+        """Обёртка внутри карточки: одинаковые внутренние отступы везде."""
+        inner = ctk.CTkFrame(parent, fg_color="transparent")
+        inner.pack(fill="x", padx=pad[0], pady=pad[1])
+        return inner
+
     def _entry(self, parent, **kw):
-        opts = dict(height=38, corner_radius=9, fg_color=SURFACE, border_width=1,
+        opts = dict(height=38, corner_radius=R2, fg_color=SURFACE, border_width=1,
                     border_color=BORDER, text_color=TEXT, placeholder_text_color=MUTED,
                     font=self.f_body)
         opts.update(kw)
         return ctk.CTkEntry(parent, **opts)
 
     def _menu(self, parent, **kw):
-        opts = dict(height=36, corner_radius=9, fg_color=SURFACE, button_color=CARD_HOVER,
+        opts = dict(height=36, corner_radius=R2, fg_color=SURFACE, button_color=CARD_HOVER,
                     button_hover_color=BORDER, text_color=TEXT, dropdown_fg_color=CARD,
                     dropdown_hover_color=CARD_HOVER, dropdown_text_color=TEXT, font=self.f_small)
         opts.update(kw)
@@ -1097,27 +1180,22 @@ class App(ctk.CTk):
 
     # ---- вкладка «Звуки»
     def _build_sounds(self, tab):
-        head = ctk.CTkFrame(tab, fg_color="transparent")
-        head.pack(fill="x")
-        left = ctk.CTkFrame(head, fg_color="transparent")
-        left.pack(side="left", fill="x", expand=True)
-        ctk.CTkLabel(left, text="Звуки", anchor="w", text_color=TEXT,
-                     font=self.f_h2).pack(anchor="w")
-        muted_label(left, "Короткие звуки и мемы. Нажмите ▶ или назначьте горячую клавишу."
-                    ).pack(anchor="w", pady=(2, 0))
-        ctk.CTkButton(head, text="+  Добавить звук", width=160, height=38, corner_radius=10,
-                      fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#ffffff",
-                      font=self.f_body, command=self.add_sounds).pack(side="right")
+        self._page_header(
+            tab, "Звуки",
+            "Короткие звуки и мемы. Нажмите ▶ или назначьте горячую клавишу.",
+            actions=(("+  Добавить звук", self.add_sounds, "primary"),))
 
-        self.list = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0)
-        self.list.pack(fill="both", expand=True, pady=(14, 0))
+        self.list = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0,
+                                           scrollbar_button_color=BORDER,
+                                           scrollbar_button_hover_color=CARD_HOVER)
+        self.list.pack(fill="both", expand=True)
 
     def _empty_state(self, parent, title, text):
         box = ctk.CTkFrame(parent, fg_color="transparent")
-        box.pack(fill="x", pady=30)
+        box.pack(fill="x", pady=S6)
         ctk.CTkLabel(box, text=title, text_color=TEXT, font=self.f_h2).pack()
         muted_label(box, text, anchor="center", justify="center", wraplength=520
-                    ).pack(pady=(6, 0))
+                    ).pack(pady=(S2, 0))
 
     def add_sounds(self):
         paths = filedialog.askopenfilenames(
@@ -1132,6 +1210,21 @@ class App(ctk.CTk):
         save_cfg(self.cfg)
         self.refresh_sounds()
 
+    def _list_row(self, parent):
+        row = card(parent)
+        row.pack(fill="x", pady=(0, S2))
+        return row
+
+    def _row_actions(self, row, hotkey, on_hotkey, on_delete):
+        ctk.CTkButton(row, text=self._hk_text(hotkey, "Клавиша"), width=118, height=32,
+                      corner_radius=R1, fg_color=SURFACE, hover_color=CARD_HOVER,
+                      border_width=1, border_color=BORDER, text_color=MUTED, font=self.f_small,
+                      command=on_hotkey).pack(side="left", padx=S1)
+        ctk.CTkButton(row, text="✕", width=32, height=32, corner_radius=R1,
+                      fg_color="transparent", hover_color=DANGER_SOFT, text_color=DANGER,
+                      font=self.f_small,
+                      command=on_delete).pack(side="left", padx=(0, S2))
+
     def refresh_sounds(self):
         for w in self.list.winfo_children():
             w.destroy()
@@ -1140,23 +1233,19 @@ class App(ctk.CTk):
                               "Нажмите «Добавить звук» и выберите файл wav, mp3, ogg или flac.")
             return
         for s in self.cfg["sounds"]:
-            row = card(self.list)
-            row.pack(fill="x", pady=4)
-            ctk.CTkButton(row, text=f"▶   {s['name']}", anchor="w", height=40,
-                          fg_color="transparent", hover_color=CARD_HOVER, text_color=TEXT,
+            row = self._list_row(self.list)
+            ctk.CTkButton(row, text="▶", width=36, height=36, corner_radius=18,
+                          fg_color=ACCENT_SOFT, hover_color=BORDER, text_color=ACCENT_HOVER,
+                          font=self.f_small,
+                          command=lambda p=s["path"]: self.engine.play(p)
+                          ).pack(side="left", padx=(S2, S3), pady=S2)
+            ctk.CTkButton(row, text=s["name"][:52], anchor="w", height=36,
+                          fg_color="transparent", hover_color=CARD, text_color=TEXT,
                           font=self.f_body,
                           command=lambda p=s["path"]: self.engine.play(p)
-                          ).pack(side="left", fill="x", expand=True, padx=(6, 0), pady=6)
-            ctk.CTkButton(row, text=self._hk_text(s["hotkey"], "Клавиша"), width=120, height=32,
-                          corner_radius=8, fg_color=SURFACE, hover_color=CARD_HOVER,
-                          border_width=1, border_color=BORDER, text_color=MUTED, font=self.f_small,
-                          command=lambda s=s: self.set_sound_hotkey(s)
-                          ).pack(side="left", padx=4, pady=6)
-            ctk.CTkButton(row, text="✕", width=34, height=32, corner_radius=8,
-                          fg_color="transparent", hover_color=DANGER_SOFT, text_color=DANGER,
-                          font=self.f_body,
-                          command=lambda s=s: self.remove_sound(s)
-                          ).pack(side="left", padx=(0, 6), pady=6)
+                          ).pack(side="left", fill="x", expand=True)
+            self._row_actions(row, s["hotkey"], lambda s=s: self.set_sound_hotkey(s),
+                              lambda s=s: self.remove_sound(s))
 
     def set_sound_hotkey(self, s):
         def done(hk):
@@ -1176,33 +1265,33 @@ class App(ctk.CTk):
 
     # ---- вкладка «Голос ИИ»
     def _build_tts(self, tab):
-        body = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0)
+        body = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0,
+                                      scrollbar_button_color=BORDER,
+                                      scrollbar_button_hover_color=CARD_HOVER)
         body.pack(fill="both", expand=True)
-        ctk.CTkLabel(body, text="Голос ИИ", anchor="w", text_color=TEXT,
-                     font=self.f_h2).pack(anchor="w")
-        muted_label(body, "Введите текст, выберите голос и нажмите «Озвучить». Ctrl+Enter — быстрый запуск."
-                    ).pack(anchor="w", pady=(2, 0))
+        self._page_header(body, "Голос ИИ",
+                          "Введите текст, выберите голос и нажмите «Озвучить». "
+                          "Ctrl+Enter — быстрый запуск.")
 
         main = card(body)
-        main.pack(fill="x", pady=(14, 0))
-        inner = ctk.CTkFrame(main, fg_color="transparent")
-        inner.pack(fill="x", padx=16, pady=16)
+        main.pack(fill="x")
+        inner = self._card_body(main)
 
         row = ctk.CTkFrame(inner, fg_color="transparent")
-        row.pack(fill="x")
+        row.pack(fill="x", pady=(0, S3))
         ctk.CTkLabel(row, text="Голос", anchor="w", text_color=MUTED,
-                     font=self.f_small).pack(side="left", padx=(0, 8))
+                     font=self.f_small).pack(side="left", padx=(0, S2))
         self.voice_var = ctk.StringVar(value=self.cfg["voice"])
-        self.voice_menu = self._menu(row, variable=self.voice_var, width=280,
+        self.voice_menu = self._menu(row, variable=self.voice_var, width=300,
                                      values=[v["name"] for v in self.cfg["voices"]],
                                      command=self.on_voice_change)
-        self.voice_menu.pack(side="left")
+        self.voice_menu.pack(side="left", fill="x", expand=True)
         self.voice_menus.append(self.voice_menu)
 
-        self.textbox = ctk.CTkTextbox(inner, height=150, corner_radius=10, fg_color=SURFACE,
+        self.textbox = ctk.CTkTextbox(inner, height=158, corner_radius=R2, fg_color=SURFACE,
                                       border_width=1, border_color=BORDER, text_color=TEXT,
                                       font=self.f_body, wrap="word")
-        self.textbox.pack(fill="x", pady=12)
+        self.textbox.pack(fill="x", pady=(0, S3))
         self.textbox.bind("<Control-Return>", lambda e: (self.speak(), "break")[1])
 
         row = ctk.CTkFrame(inner, fg_color="transparent")
@@ -1213,21 +1302,18 @@ class App(ctk.CTk):
                       button_hover_color="#ffffff", text_color=MUTED,
                       font=self.f_small).pack(side="left")
         self.speak_btn = ctk.CTkButton(row, text="Озвучить и воспроизвести", height=40,
-                                       corner_radius=10, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                       corner_radius=R2, fg_color=ACCENT, hover_color=ACCENT_HOVER,
                                        text_color="#ffffff", font=self.f_body, command=self.speak)
         self.speak_btn.pack(side="right")
-        ctk.CTkButton(row, text="★  В фразы", width=120, height=40, corner_radius=10,
-                      fg_color=SURFACE, hover_color=CARD_HOVER, border_width=1, border_color=BORDER,
-                      text_color=TEXT, font=self.f_body,
-                      command=self.phrase_from_textbox).pack(side="right", padx=8)
+        self._btn(row, "★  В фразы", self.phrase_from_textbox, width=124, height=40
+                  ).pack(side="right", padx=S2)
 
         search = card(body)
-        search.pack(fill="x", pady=(12, 0))
-        s = ctk.CTkFrame(search, fg_color="transparent")
-        s.pack(fill="x", padx=16, pady=16)
+        search.pack(fill="x", pady=(S3, 0))
+        s = self._card_body(search)
         card_title(s, "Найти голос на Fish Audio").pack(anchor="w")
         muted_label(s, "Поиск по названию или теме. Понравившийся голос добавляется одним нажатием."
-                    ).pack(anchor="w", pady=(2, 10))
+                    ).pack(anchor="w", pady=(S1, S3))
         row = ctk.CTkFrame(s, fg_color="transparent")
         row.pack(fill="x")
         self.search_entry = self._entry(row, placeholder_text="название / тема голоса")
@@ -1235,29 +1321,30 @@ class App(ctk.CTk):
         self.search_entry.bind("<Return>", lambda e: self.search_voices())
         self.lang_var = ctk.StringVar(value="ru")
         self._menu(row, variable=self.lang_var, width=100,
-                   values=["любой", "ru", "en", "uk", "ja", "zh"]).pack(side="left", padx=8)
-        ctk.CTkButton(row, text="Найти", width=90, height=38, corner_radius=9,
-                      fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#ffffff",
-                      font=self.f_body, command=self.search_voices).pack(side="left")
-        self.results = ctk.CTkScrollableFrame(s, height=140, fg_color=SURFACE, corner_radius=10)
-        self.results.pack(fill="x", pady=(10, 0))
+                   values=["любой", "ru", "en", "uk", "ja", "zh"]).pack(side="left", padx=S2)
+        self._btn(row, "Найти", self.search_voices, "primary", width=88
+                  ).pack(side="left")
+        self.results = ctk.CTkScrollableFrame(s, height=140, fg_color=SURFACE, corner_radius=R2,
+                                              scrollbar_button_color=BORDER,
+                                              scrollbar_button_hover_color=CARD_HOVER)
+        self.results.pack(fill="x", pady=(S3, 0))
+        muted_label(self.results, "Результаты поиска появятся здесь.", anchor="center",
+                    justify="center", wraplength=480).pack(pady=S4)
 
         add = card(body)
-        add.pack(fill="x", pady=(12, 0))
-        a = ctk.CTkFrame(add, fg_color="transparent")
-        a.pack(fill="x", padx=16, pady=16)
+        add.pack(fill="x", pady=(S3, 0))
+        a = self._card_body(add)
         card_title(a, "Добавить голос по ссылке").pack(anchor="w")
         muted_label(a, "Ссылка вида fish.audio/m/… или 32-символьный ID голоса."
-                    ).pack(anchor="w", pady=(2, 10))
+                    ).pack(anchor="w", pady=(S1, S3))
         row = ctk.CTkFrame(a, fg_color="transparent")
         row.pack(fill="x")
         self.id_entry = self._entry(row, placeholder_text="ссылка fish.audio/m/… или ID голоса")
         self.id_entry.pack(side="left", fill="x", expand=True)
         self.name_entry = self._entry(row, width=150, placeholder_text="имя (необяз.)")
-        self.name_entry.pack(side="left", padx=8)
-        ctk.CTkButton(row, text="Добавить", width=100, height=38, corner_radius=9,
-                      fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#ffffff",
-                      font=self.f_body, command=self.add_voice_from_entry).pack(side="left")
+        self.name_entry.pack(side="left", padx=S2)
+        self._btn(row, "Добавить", self.add_voice_from_entry, "primary", width=104
+                  ).pack(side="left")
 
     def on_voice_change(self, name):
         self.cfg["voice"] = name
@@ -1384,33 +1471,30 @@ class App(ctk.CTk):
 
     # ---- вкладка «Фразы»
     def _build_phrases(self, tab):
-        head = ctk.CTkFrame(tab, fg_color="transparent")
-        head.pack(fill="x")
-        ctk.CTkLabel(head, text="Фразы", anchor="w", text_color=TEXT,
-                     font=self.f_h2).pack(anchor="w")
-        muted_label(head, "Фраза озвучивается один раз, дальше играет мгновенно из файла."
-                    ).pack(anchor="w", pady=(2, 0))
+        self._page_header(tab, "Фразы",
+                          "Фраза озвучивается один раз, дальше играет мгновенно из файла.")
 
         add = card(tab)
-        add.pack(fill="x", pady=(14, 0))
-        inner = ctk.CTkFrame(add, fg_color="transparent")
-        inner.pack(fill="x", padx=14, pady=14)
+        add.pack(fill="x")
+        inner = self._card_body(add, pad=(S4, S4))
         self.phrase_entry = self._entry(inner, placeholder_text="Текст фразы")
         self.phrase_entry.pack(side="left", fill="x", expand=True)
         self.phrase_entry.bind("<Return>", lambda e: self.add_phrase_from_entry())
         self.phrase_voice_var = ctk.StringVar(value=self.cfg["voice"])
         menu = self._menu(inner, variable=self.phrase_voice_var, width=170,
                           values=[v["name"] for v in self.cfg["voices"]])
-        menu.pack(side="left", padx=8)
+        menu.pack(side="left", padx=S2)
         self.voice_menus.append(menu)
-        ctk.CTkButton(inner, text="+ Добавить", width=110, height=38, corner_radius=9,
-                      fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#ffffff",
-                      font=self.f_body, command=self.add_phrase_from_entry).pack(side="left")
+        self._btn(inner, "+  Добавить", self.add_phrase_from_entry, "primary", width=118
+                  ).pack(side="left")
 
-        muted_label(tab, "Первое нажатие озвучивает фразу, дальше — мгновенно и без трат. ↻ — озвучить заново.",
-                    wraplength=720).pack(fill="x", pady=(10, 0))
-        self.phrase_list = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0)
-        self.phrase_list.pack(fill="both", expand=True, pady=(10, 0))
+        muted_label(tab, "Первое нажатие озвучивает фразу, дальше — мгновенно и без трат. "
+                         "↻ — озвучить заново.", wraplength=720
+                    ).pack(fill="x", pady=(S3, S2))
+        self.phrase_list = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0,
+                                                  scrollbar_button_color=BORDER,
+                                                  scrollbar_button_hover_color=CARD_HOVER)
+        self.phrase_list.pack(fill="both", expand=True)
 
     def add_phrase(self, text, voice, vid, path=""):
         if any(p["text"] == text and p["voice_id"] == vid for p in self.cfg["phrases"]):
@@ -1443,28 +1527,24 @@ class App(ctk.CTk):
                               "Введите текст выше и нажмите «Добавить» — фраза появится здесь.")
             return
         for ph in self.cfg["phrases"]:
-            row = card(self.phrase_list)
-            row.pack(fill="x", pady=4)
-            ctk.CTkButton(row, text=f"▶   {ph['text'][:60]}", anchor="w", height=40,
-                          fg_color="transparent", hover_color=CARD_HOVER, text_color=TEXT,
+            row = self._list_row(self.phrase_list)
+            ctk.CTkButton(row, text="▶", width=36, height=36, corner_radius=18,
+                          fg_color=ACCENT_SOFT, hover_color=BORDER, text_color=ACCENT_HOVER,
+                          font=self.f_small,
+                          command=lambda ph=ph: self.play_phrase(ph)
+                          ).pack(side="left", padx=(S2, S3), pady=S2)
+            ctk.CTkButton(row, text=ph["text"][:60], anchor="w", height=36,
+                          fg_color="transparent", hover_color=CARD, text_color=TEXT,
                           font=self.f_body,
                           command=lambda ph=ph: self.play_phrase(ph)
-                          ).pack(side="left", fill="x", expand=True, padx=(6, 0), pady=6)
-            ctk.CTkButton(row, text=self._hk_text(ph["hotkey"], "Клавиша"), width=120, height=32,
-                          corner_radius=8, fg_color=SURFACE, hover_color=CARD_HOVER,
-                          border_width=1, border_color=BORDER, text_color=MUTED, font=self.f_small,
-                          command=lambda ph=ph: self.set_phrase_hotkey(ph)
-                          ).pack(side="left", padx=4, pady=6)
-            ctk.CTkButton(row, text="↻", width=34, height=32, corner_radius=8,
+                          ).pack(side="left", fill="x", expand=True)
+            ctk.CTkButton(row, text="↻", width=32, height=32, corner_radius=R1,
                           fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
-                          font=self.f_body,
+                          font=self.f_small,
                           command=lambda ph=ph: self.play_phrase(ph, force=True)
-                          ).pack(side="left", pady=6)
-            ctk.CTkButton(row, text="✕", width=34, height=32, corner_radius=8,
-                          fg_color="transparent", hover_color=DANGER_SOFT, text_color=DANGER,
-                          font=self.f_body,
-                          command=lambda ph=ph: self.remove_phrase(ph)
-                          ).pack(side="left", padx=(4, 6), pady=6)
+                          ).pack(side="left", pady=S2)
+            self._row_actions(row, ph["hotkey"], lambda ph=ph: self.set_phrase_hotkey(ph),
+                              lambda ph=ph: self.remove_phrase(ph))
 
     def play_phrase(self, ph, force=False):
         threading.Thread(target=self._phrase_worker, args=(ph, force), daemon=True).start()
@@ -1502,20 +1582,13 @@ class App(ctk.CTk):
 
     # ---- вкладка «История»
     def _build_history(self, tab):
-        head = ctk.CTkFrame(tab, fg_color="transparent")
-        head.pack(fill="x")
-        left = ctk.CTkFrame(head, fg_color="transparent")
-        left.pack(side="left", fill="x", expand=True)
-        ctk.CTkLabel(left, text="История", anchor="w", text_color=TEXT,
-                     font=self.f_h2).pack(anchor="w")
-        muted_label(left, f"Последние {HISTORY_MAX} озвучек. ★ — в фразы, ↩ — в редактор."
-                    ).pack(anchor="w", pady=(2, 0))
-        ctk.CTkButton(head, text="Очистить", width=110, height=34, corner_radius=9,
-                      fg_color=SURFACE, hover_color=DANGER_SOFT, border_width=1,
-                      border_color=BORDER, text_color=MUTED, font=self.f_small,
-                      command=self.clear_history).pack(side="right")
-        self.hist_list = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0)
-        self.hist_list.pack(fill="both", expand=True, pady=(14, 0))
+        self._page_header(tab, "История",
+                          f"Последние {HISTORY_MAX} озвучек. ★ — в фразы, ✎ — в редактор.",
+                          actions=(("Очистить", self.clear_history, "ghost"),))
+        self.hist_list = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0,
+                                                scrollbar_button_color=BORDER,
+                                                scrollbar_button_hover_color=CARD_HOVER)
+        self.hist_list.pack(fill="both", expand=True)
 
     def add_history(self, text, voice, vid, path):
         h = self.cfg["history"]
@@ -1535,30 +1608,34 @@ class App(ctk.CTk):
                               "Здесь появятся озвученные фразы — их можно прослушать снова или сохранить в «Фразы».")
             return
         for e in self.cfg["history"]:
-            row = card(self.hist_list)
-            row.pack(fill="x", pady=4)
-            ctk.CTkButton(row, text=f"▶   {e['text'][:44]}", anchor="w", height=40,
-                          fg_color="transparent", hover_color=CARD_HOVER, text_color=TEXT,
+            row = self._list_row(self.hist_list)
+            ctk.CTkButton(row, text="▶", width=36, height=36, corner_radius=18,
+                          fg_color=ACCENT_SOFT, hover_color=BORDER, text_color=ACCENT_HOVER,
+                          font=self.f_small,
+                          command=lambda p=e["path"]: self.engine.play(p)
+                          ).pack(side="left", padx=(S2, S3), pady=S2)
+            ctk.CTkButton(row, text=e["text"][:52], anchor="w", height=36,
+                          fg_color="transparent", hover_color=CARD, text_color=TEXT,
                           font=self.f_body,
                           command=lambda p=e["path"]: self.engine.play(p)
-                          ).pack(side="left", fill="x", expand=True, padx=(6, 0), pady=6)
+                          ).pack(side="left", fill="x", expand=True)
             ctk.CTkLabel(row, text=e["voice"][:14], width=110, anchor="w",
                          text_color=MUTED, font=self.f_small).pack(side="left")
-            ctk.CTkButton(row, text="★", width=34, height=32, corner_radius=8,
+            ctk.CTkButton(row, text="★", width=32, height=32, corner_radius=R1,
                           fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
-                          font=self.f_body,
+                          font=self.f_small,
                           command=lambda e=e: self.add_phrase(e["text"], e["voice"], e["voice_id"], e["path"])
-                          ).pack(side="left", pady=6)
-            ctk.CTkButton(row, text="↩", width=34, height=32, corner_radius=8,
+                          ).pack(side="left", pady=S2)
+            ctk.CTkButton(row, text="✎", width=32, height=32, corner_radius=R1,
                           fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
-                          font=self.f_body,
+                          font=self.f_small,
                           command=lambda e=e: self.history_to_textbox(e)
-                          ).pack(side="left", padx=4, pady=6)
-            ctk.CTkButton(row, text="✕", width=34, height=32, corner_radius=8,
+                          ).pack(side="left", padx=S1, pady=S2)
+            ctk.CTkButton(row, text="✕", width=32, height=32, corner_radius=R1,
                           fg_color="transparent", hover_color=DANGER_SOFT, text_color=DANGER,
-                          font=self.f_body,
+                          font=self.f_small,
                           command=lambda e=e: self.remove_history(e)
-                          ).pack(side="left", padx=(0, 6), pady=6)
+                          ).pack(side="left", padx=(0, S2))
 
     def history_to_textbox(self, e):
         self.textbox.delete("1.0", "end")
@@ -1582,42 +1659,40 @@ class App(ctk.CTk):
 
     # ---- вкладка «Настройки»
     def _build_settings(self, tab):
-        body = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0)
+        body = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0,
+                                      scrollbar_button_color=BORDER,
+                                      scrollbar_button_hover_color=CARD_HOVER)
         body.pack(fill="both", expand=True)
-        ctk.CTkLabel(body, text="Настройки", anchor="w", text_color=TEXT,
-                     font=self.f_h2).pack(anchor="w")
-        muted_label(body, "Изменения сохраняются сразу. Ключ и модель применяются при вводе."
-                    ).pack(anchor="w", pady=(2, 0))
+        self._page_header(body, "Настройки",
+                          "Изменения сохраняются сразу. Ключ и модель применяются при вводе.")
 
         # Fish Audio
         api = card(body)
-        api.pack(fill="x", pady=(14, 0))
-        a = ctk.CTkFrame(api, fg_color="transparent")
-        a.pack(fill="x", padx=16, pady=16)
+        api.pack(fill="x")
+        a = self._card_body(api)
         card_title(a, "Fish Audio").pack(anchor="w")
         muted_label(a, "API-ключ: fish.audio/app/api-keys. Хранится только на этом компьютере."
-                    ).pack(anchor="w", pady=(2, 12))
+                    ).pack(anchor="w", pady=(S1, S4))
 
         muted_label(a, "API-ключ").pack(anchor="w")
         self.key_var = ctk.StringVar(value=self.cfg["api_key"])
         self.key_entry = self._entry(a, show="•", textvariable=self.key_var)
-        self.key_entry.pack(fill="x", pady=(4, 12))
+        self.key_entry.pack(fill="x", pady=(S1, S4))
         self.key_var.trace_add("write", lambda *_: self.live_save("api_key", self.key_var.get().strip()))
 
         muted_label(a, "Модель").pack(anchor="w")
         self.model_var = ctk.StringVar(value=self.cfg["model"])
         self.model_entry = self._entry(a, textvariable=self.model_var)
-        self.model_entry.pack(fill="x", pady=(4, 0))
+        self.model_entry.pack(fill="x", pady=(S1, 0))
         self.model_var.trace_add("write", lambda *_: self.live_save("model", self.model_var.get().strip()))
 
         # Устройства
         dev = card(body)
-        dev.pack(fill="x", pady=(12, 0))
-        d = ctk.CTkFrame(dev, fg_color="transparent")
-        d.pack(fill="x", padx=16, pady=16)
+        dev.pack(fill="x", pady=(S3, 0))
+        d = self._card_body(dev)
         card_title(d, "Устройства").pack(anchor="w")
         muted_label(d, "CABLE Input — виртуальный микрофон. В игре выбирается CABLE Output."
-                    ).pack(anchor="w", pady=(2, 12))
+                    ).pack(anchor="w", pady=(S1, S3))
 
         outs = [NONE] + list(list_devices("output"))
         ins = [NONE] + list(list_devices("input"))
@@ -1626,13 +1701,12 @@ class App(ctk.CTk):
         self.mic_var = ctk.StringVar(value=self.cfg["mic_device"] or NONE)
 
         head = ctk.CTkFrame(d, fg_color="transparent")
-        head.pack(fill="x", pady=(0, 6))
+        head.pack(fill="x", pady=(0, S2))
         muted_label(head, "Если подключили наушники или микрофон при запущенной программе — "
-                          "нажмите «Обновить».").pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(head, text="Обновить", width=104, height=30, corner_radius=8,
-                      fg_color=SURFACE, hover_color=CARD_HOVER, border_width=1, border_color=BORDER,
-                      text_color=TEXT, font=self.f_small,
-                      command=self.refresh_device_lists).pack(side="right")
+                          "нажмите «Обновить».", wraplength=470
+                    ).pack(side="left", fill="x", expand=True)
+        self._btn(head, "Обновить", self.refresh_device_lists, height=32, width=132
+                  ).pack(side="right")
 
         muted_label(d, "Виртуальный микрофон — выход в кабель (CABLE Input)").pack(anchor="w")
         self.cable_menu, cable_test = self._device_row(d, self.cable_var, outs)
@@ -1642,7 +1716,7 @@ class App(ctk.CTk):
                                        button_hover_color="#ffffff",
                                        command=lambda v: self.cfg.update(vol_cable=float(v)))
         self.vol_cable.set(self.cfg["vol_cable"])
-        self.vol_cable.pack(fill="x", pady=(0, 12))
+        self.vol_cable.pack(fill="x", pady=(0, S4))
 
         muted_label(d, "Мои наушники / динамики (чтобы слышать самому)").pack(anchor="w")
         self.monitor_menu, monitor_test = self._device_row(d, self.monitor_var, outs)
@@ -1652,12 +1726,14 @@ class App(ctk.CTk):
                                          button_hover_color="#ffffff",
                                          command=lambda v: self.cfg.update(vol_monitor=float(v)))
         self.vol_monitor.set(self.cfg["vol_monitor"])
-        self.vol_monitor.pack(fill="x", pady=(0, 12))
+        self.vol_monitor.pack(fill="x", pady=(0, S4))
         for slider in (self.vol_cable, self.vol_monitor):
             try:   # громкость запоминается, когда отпускаем ползунок
                 slider.bind("<ButtonRelease-1>", lambda _e: save_cfg(self.cfg))
             except Exception:
                 pass
+
+        divider(d)
 
         self.pt_switch = ctk.CTkSwitch(d, text="Пропускать мой реальный микрофон в кабель",
                                        fg_color=BORDER, progress_color=ACCENT, button_color=TEXT,
@@ -1665,43 +1741,34 @@ class App(ctk.CTk):
                                        font=self.f_body, command=self.save_settings)
         if self.cfg["passthrough"]:
             self.pt_switch.select()
-        self.pt_switch.pack(anchor="w", pady=(0, 8))
+        self.pt_switch.pack(anchor="w", pady=(0, S2))
         self.mic_menu, mic_test = self._device_row(d, self.mic_var, ins, test_text="🎤")
         mic_test.configure(command=self.test_mic)
 
         # VB-CABLE
         cab = card(body)
-        cab.pack(fill="x", pady=(12, 0))
-        c = ctk.CTkFrame(cab, fg_color="transparent")
-        c.pack(fill="x", padx=16, pady=16)
+        cab.pack(fill="x", pady=(S3, 0))
+        c = self._card_body(cab)
         card_title(c, "Виртуальный микрофон VB-CABLE").pack(anchor="w")
         muted_label(c, "Бесплатный драйвер VB-Audio. Нужен, чтобы игра слышала звуки и голос."
-                    ).pack(anchor="w", pady=(2, 12))
+                    ).pack(anchor="w", pady=(S1, S4))
         row = ctk.CTkFrame(c, fg_color="transparent")
         row.pack(fill="x")
-        ctk.CTkButton(row, text="Установить VB-CABLE", height=38, corner_radius=9,
-                      fg_color=SURFACE, hover_color=CARD_HOVER, border_width=1, border_color=BORDER,
-                      text_color=TEXT, font=self.f_body,
-                      command=self.install_cable_async).pack(side="left")
-        ctk.CTkButton(row, text="Удалить", height=38, corner_radius=9,
-                      fg_color="transparent", hover_color=DANGER_SOFT, text_color=DANGER,
-                      font=self.f_body,
-                      command=self.uninstall_cable_async).pack(side="left", padx=8)
-        ctk.CTkButton(row, text="Сохранить", height=38, corner_radius=9,
-                      fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#ffffff",
-                      font=self.f_body, command=self.save_settings).pack(side="right")
+        self._btn(row, "Установить VB-CABLE", self.install_cable_async).pack(side="left")
+        self._btn(row, "Удалить", self.uninstall_cable_async, "danger").pack(side="left", padx=S2)
+        self._btn(row, "Сохранить", self.save_settings, "primary").pack(side="right")
 
     def _device_row(self, parent, variable, values, test_text="▶"):
         """Список устройств и кнопка проверки рядом: длина списка больше не влияет на вёрстку."""
         row = ctk.CTkFrame(parent, fg_color="transparent")
-        row.pack(fill="x", pady=(4, 6))
+        row.pack(fill="x", pady=(S1, S2))
         menu = self._menu(row, variable=variable, values=values,
                           command=lambda _v: self.save_settings())
         menu.pack(side="left", fill="x", expand=True)
-        btn = ctk.CTkButton(row, text=test_text, width=44, height=36, corner_radius=9,
+        btn = ctk.CTkButton(row, text=test_text, width=44, height=36, corner_radius=R2,
                             fg_color=SURFACE, hover_color=CARD_HOVER, border_width=1,
                             border_color=BORDER, text_color=TEXT, font=self.f_small)
-        btn.pack(side="left", padx=(8, 0))
+        btn.pack(side="left", padx=(S2, 0))
         return menu, btn
 
     def test_output(self, variable):
