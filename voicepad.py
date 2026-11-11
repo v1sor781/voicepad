@@ -38,7 +38,7 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 NONE = "— нет —"
 HISTORY_MAX = 50
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.6"
 DEFAULT_MODEL = "s2.1-pro-free"  # бесплатная модель Fish Audio API; платная: "s2-pro"
 
 # ---- палитра интерфейса (совпадает со страницей скачивания)
@@ -91,16 +91,111 @@ def save_cfg(cfg):
 # ---------------------------------------------------------------- аудио
 
 def list_devices(kind):
-    """{имя: индекс} для 'input' / 'output'. Берём только MME — он самый совместимый."""
+    """{название: индекс} для 'input' / 'output'.
+
+    Сначала Windows WASAPI: там полные названия устройств (MME обрезает их до 31
+    символа, из-за чего наушники легко перепутать с динамиками) и работает
+    автоматическая конвертация частоты. Если WASAPI нет — берём MME.
+    """
     res = {}
     try:
-        api = next((i for i, h in enumerate(sd.query_hostapis()) if h["name"] == "MME"), None)
-        for i, d in enumerate(sd.query_devices()):
-            if d[f"max_{kind}_channels"] > 0 and (api is None or d["hostapi"] == api):
-                res[d["name"]] = i
+        apis = sd.query_hostapis()
+        devices = sd.query_devices()
+        for api_name in ("Windows WASAPI", "MME"):
+            api = next((i for i, h in enumerate(apis) if h["name"] == api_name), None)
+            if api is None:
+                continue
+            added = 0
+            for i, d in enumerate(devices):
+                if d["hostapi"] != api or d[f"max_{kind}_channels"] <= 0:
+                    continue
+                name = d["name"].strip()
+                label = name
+                if label in res:
+                    label = f"{name} [{api_name.split()[-1]}]"
+                if label in res:
+                    continue
+                res[label] = i
+                added += 1
+            if added:
+                break   # одного хост-API достаточно, иначе в списке будут дубли
     except Exception:
         pass  # нет аудиоустройств или сбой PortAudio: программа всё равно должна запуститься
     return res
+
+
+def device_name(devices, idx):
+    """Название устройства по индексу (чтобы сохранить его в настройках)."""
+    for name, i in devices.items():
+        if i == idx:
+            return name
+    return ""
+
+
+def resolve_device(value, kind):
+    """Индекс устройства по сохранённому названию.
+
+    Понимает и старые названия от MME: они обрезаны до 31 символа, поэтому
+    сравниваем ещё и по началу строки.
+    """
+    if not value:
+        return None
+    devices = list_devices(kind)
+    if value in devices:
+        return devices[value]
+
+    low = value.strip().lower()
+    for name, idx in devices.items():
+        if name.strip().lower() == low:
+            return idx
+    for name, idx in devices.items():
+        n = name.strip().lower()
+        if n.startswith(low) or low.startswith(n):
+            return idx
+    for name, idx in devices.items():
+        if low in name.strip().lower():
+            return idx
+    return None
+
+
+def open_output_stream(dev, sr, channels):
+    """Поток вывода: WASAPI в общем режиме с конвертацией частоты, иначе обычный."""
+    try:
+        return sd.OutputStream(device=dev, samplerate=sr, channels=channels, dtype="float32",
+                               extra_settings=sd.WasapiSettings(auto_convert=True))
+    except Exception:
+        return sd.OutputStream(device=dev, samplerate=sr, channels=channels, dtype="float32")
+
+
+def default_device(kind):
+    """Основное устройство Windows (WASAPI): 'input' или 'output'. None, если его нет."""
+    try:
+        apis = sd.query_hostapis()
+        api = next((h for h in apis if h["name"] == "Windows WASAPI"), None)
+        if api is not None:
+            idx = api[f"default_{kind}_device"]
+            if idx is not None and idx >= 0:
+                return idx
+    except Exception:
+        pass
+    try:
+        idx = sd.default.device[0 if kind == "input" else 1]
+        if idx is not None and idx >= 0:
+            return idx
+    except Exception:
+        pass
+    return None
+
+
+def resample(data, sr, new_sr):
+    """Линейно пересчитывает частоту дискретизации (нужно, если устройство не умеет sr)."""
+    if sr == new_sr or not len(data):
+        return data
+    frames = max(1, int(round(len(data) * new_sr / sr)))
+    x_old = np.linspace(0.0, 1.0, len(data), endpoint=False)
+    x_new = np.linspace(0.0, 1.0, frames, endpoint=False)
+    cols = [np.interp(x_new, x_old, data[:, c]) for c in range(data.shape[1])]
+    return np.column_stack(cols).astype(np.float32)
 
 
 CABLE_PAGE = "https://vb-audio.com/Cable/"
@@ -268,15 +363,29 @@ def find_input(substr):
 def record_peak(dev, seconds, on_level):
     """Слушает устройство записи и возвращает максимальный уровень 0..1.
     on_level(v) вызывается для каждого блока (для индикатора уровня)."""
-    sr = int(sd.query_devices(dev)["default_samplerate"])
+    try:
+        info = sd.query_devices(dev)
+    except Exception:
+        info = {}
+    sr = int(info.get("default_samplerate") or 48000)
+    ch = max(1, min(int(info.get("max_input_channels") or 1), 2))
     peak = [0.0]
 
     def cb(indata, frames, t, status):
-        lvl = float(np.abs(indata).max()) if frames else 0.0
+        if not frames:
+            return
+        lvl = float(np.abs(indata).max())
         peak[0] = max(peak[0], lvl)
         on_level(lvl)
 
-    with sd.InputStream(device=dev, channels=1, samplerate=sr, dtype="float32", callback=cb):
+    def open_stream():
+        try:
+            return sd.InputStream(device=dev, channels=ch, samplerate=sr, dtype="float32",
+                                  extra_settings=sd.WasapiSettings(auto_convert=True), callback=cb)
+        except Exception:
+            return sd.InputStream(device=dev, channels=ch, samplerate=sr, dtype="float32", callback=cb)
+
+    with open_stream():
         time.sleep(seconds)
     return peak[0]
 
@@ -314,43 +423,75 @@ class Player:
         self.token += 1
         threading.Thread(target=self._run, args=(path, self.token), daemon=True).start()
 
+    def _targets(self):
+        """[(устройство, громкость)] для вывода. Одно и то же устройство не играет дважды."""
+        targets = {}
+        for dev_key, vol_key in (("cable_device", "vol_cable"), ("monitor_device", "vol_monitor")):
+            idx = resolve_device(self.cfg[dev_key], "output")
+            if idx is None:
+                continue
+            vol = float(self.cfg.get(vol_key, 1.0))
+            targets[idx] = max(vol, targets.get(idx, 0.0))
+        return list(targets.items())
+
     def _run(self, path, token):
         try:
             data, sr = sf.read(path, dtype="float32", always_2d=True)
         except Exception as e:
             self.report(f"Не удалось прочитать {Path(path).name}: {e}")
             return
-        try:
-            outs = list_devices("output")
-        except Exception as e:
-            self.report(f"Ошибка: {e}")
+        targets = self._targets()
+        if not targets:
+            self.report("Не выбраны устройства вывода: откройте «Настройки» и выберите наушники и CABLE Input")
             return
-        started = False
-        for dev_key, vol_key in (("cable_device", "vol_cable"), ("monitor_device", "vol_monitor")):
-            idx = outs.get(self.cfg[dev_key])
-            if idx is not None:
-                started = True
-                threading.Thread(
-                    target=self._out, args=(idx, data, sr, self.cfg[vol_key], token), daemon=True
-                ).start()
-        if not started:
-            self.report("Выберите устройства вывода во вкладке «Настройки»")
+        for dev, vol in targets:
+            threading.Thread(target=self._out, args=(dev, data, sr, vol, token), daemon=True).start()
+
+    def beep(self, dev, seconds=0.8):
+        """Короткий писк в конкретное устройство — кнопка «проверить» рядом с выбором."""
+        self.token += 1
+        data, sr = make_tone(seconds=seconds)
+        threading.Thread(target=self._out, args=(dev, data, sr, 0.6, self.token), daemon=True).start()
 
     def _out(self, dev, data, sr, vol, token):
-        ch = min(data.shape[1], 2)
-        buf = np.clip(data[:, :ch] * vol, -1.0, 1.0)
         try:
-            with sd.OutputStream(samplerate=sr, device=dev, channels=ch, dtype="float32") as s:
-                for i in range(0, len(buf), 2048):
-                    if token != self.token:
-                        s.abort()
-                        return
-                    s.write(np.ascontiguousarray(buf[i:i + 2048]))
-        except Exception as e:
-            self.report(f"Ошибка вывода: {e}")
+            info = sd.query_devices(dev)
+        except Exception:
+            info = {}
+        max_ch = int(info.get("max_output_channels") or 0)
+        if max_ch <= 0:
+            self.report("Устройство вывода недоступно. Выберите другое в «Настройки».")
+            return
+        ch = max(1, min(data.shape[1], max_ch, 2))
+        buf = np.clip(data[:, :ch] * vol, -1.0, 1.0)
+        variants = [(ch, buf)]
+        if ch == 1 and max_ch >= 2:   # моно на стерео-устройство: некоторые драйверы так не умеют
+            variants.append((2, np.repeat(buf, 2, axis=1)))
 
-    def restart_passthrough(self):
-        """Пропускает реальный микрофон в кабель, чтобы в игре слышали и тебя, и звуки."""
+        default_sr = int(info.get("default_samplerate") or 0)
+        last = None
+        for channels, base in variants:
+            attempts = [(sr, base)]
+            if default_sr and default_sr != sr:
+                attempts.append((default_sr, resample(base, sr, default_sr)))
+            for rate, chunk in attempts:
+                try:
+                    with open_output_stream(dev, rate, channels) as s:
+                        for i in range(0, len(chunk), 2048):
+                            if token != self.token:
+                                s.abort()
+                                return
+                            s.write(np.ascontiguousarray(chunk[i:i + 2048]))
+                    return
+                except Exception as e:
+                    if token != self.token:
+                        return
+                    last = e
+        name = info.get("name") or "устройство вывода"
+        self.report(f"Не удалось вывести звук в «{name}»: {last}. "
+                    "Выберите другое устройство в «Настройки».")
+
+    def stop_passthrough(self):
         if self.pt:
             try:
                 self.pt.abort()
@@ -358,22 +499,49 @@ class Player:
             except Exception:
                 pass
             self.pt = None
+
+    def restart_passthrough(self):
+        """Пропускает реальный микрофон в кабель, чтобы в игре слышали и тебя, и звуки."""
+        self.stop_passthrough()
         if not self.cfg["passthrough"]:
             return
-        o = list_devices("output").get(self.cfg["cable_device"])
-        i = list_devices("input").get(self.cfg["mic_device"])
-        if o is None or i is None:
-            self.report("Для пропуска микрофона выберите микрофон и кабель")
+        out = resolve_device(self.cfg["cable_device"], "output")
+        mic = resolve_device(self.cfg["mic_device"], "input")
+        if mic is None:
+            self.report("Пропуск микрофона: выберите настоящий микрофон в «Настройки»")
+            return
+        if out is None:
+            self.report("Пропуск микрофона: выберите CABLE Input в «Настройки»")
             return
 
         def cb(indata, outdata, frames, t, status):
-            outdata[:] = indata
+            if indata.shape[1] == outdata.shape[1]:
+                outdata[:] = indata
+            else:
+                outdata[:] = np.repeat(indata[:, :1], outdata.shape[1], axis=1)
 
         try:
-            self.pt = sd.Stream(samplerate=48000, device=(i, o), channels=1, dtype="float32", callback=cb)
-            self.pt.start()
-        except Exception as e:
-            self.report(f"Пропуск микрофона не запустился: {e}")
+            mic_sr = int(sd.query_devices(mic)["default_samplerate"])
+        except Exception:
+            mic_sr = 48000
+        try:
+            out_ch = max(1, min(2, int(sd.query_devices(out)["max_output_channels"])))
+        except Exception:
+            out_ch = 2
+        wasapi = (sd.WasapiSettings(auto_convert=True), sd.WasapiSettings(auto_convert=True))
+        attempts = [(mic_sr, wasapi), (48000, wasapi), (44100, wasapi),
+                    (mic_sr, None), (48000, None)]
+        last = None
+        for rate, extra in attempts:
+            try:
+                self.pt = sd.Stream(samplerate=rate, device=(mic, out), channels=(1, out_ch),
+                                    dtype="float32", extra_settings=extra, callback=cb)
+                self.pt.start()
+                return
+            except Exception as e:
+                last = e
+                self.stop_passthrough()
+        self.report(f"Пропуск микрофона не запустился: {last}")
 
 
 # ---------------------------------------------------------------- интерфейс
@@ -386,6 +554,7 @@ class NavView(ctk.CTkFrame):
         self._frames = {}
         self._buttons = {}
         self._current = None
+        self.on_show = {}   # раздел -> функция, вызываемая при открытии
 
         self.sidebar = ctk.CTkFrame(self, fg_color=SURFACE, corner_radius=14,
                                     border_width=1, border_color=BORDER, width=200)
@@ -430,6 +599,12 @@ class NavView(ctk.CTkFrame):
                 btn.configure(fg_color=ACCENT_SOFT, text_color=TEXT)
             else:
                 btn.configure(fg_color="transparent", text_color=MUTED)
+        hook = self.on_show.get(name)
+        if hook:
+            try:
+                hook()
+            except Exception:
+                pass
 
     def get(self):
         return self._current
@@ -478,14 +653,44 @@ class App(ctk.CTk):
         return {"Authorization": f"Bearer {self.cfg['api_key']}"}
 
     def _guess_devices(self):
+        """Подставляет устройства и заменяет старые MME-названия на полные имена WASAPI."""
         outs = list_devices("output")
-        if not self.cfg["cable_device"] or self.cfg["cable_device"] not in outs:
-            self.cfg["cable_device"] = next((n for n in outs if "cable input" in n.lower()), "")
-        if not self.cfg["monitor_device"] or self.cfg["monitor_device"] not in outs:
-            try:
-                self.cfg["monitor_device"] = sd.query_devices(sd.default.device[1])["name"]
-            except Exception:
-                self.cfg["monitor_device"] = ""
+        ins = list_devices("input")
+        changed = False
+
+        # старые названия обрезаны до 31 символа — приводим их к полным
+        for key, devices, kind in (("cable_device", outs, "output"),
+                                   ("monitor_device", outs, "output"),
+                                   ("mic_device", ins, "input")):
+            idx = resolve_device(self.cfg[key], kind)
+            if idx is None:
+                continue
+            name = device_name(devices, idx)
+            if name and name != self.cfg[key]:
+                self.cfg[key] = name
+                changed = True
+
+        if resolve_device(self.cfg["cable_device"], "output") is None:
+            name = next((n for n in outs if "cable input" in n.lower()), "")
+            changed |= name != self.cfg["cable_device"]
+            self.cfg["cable_device"] = name
+
+        if resolve_device(self.cfg["monitor_device"], "output") is None:
+            name = device_name(outs, default_device("output"))
+            if not name or "cable" in name.lower():
+                name = next((n for n in outs if "cable" not in n.lower()), "")
+            changed |= name != self.cfg["monitor_device"]
+            self.cfg["monitor_device"] = name
+
+        if resolve_device(self.cfg["mic_device"], "input") is None:
+            name = device_name(ins, default_device("input"))
+            if not name or "cable" in name.lower():
+                name = next((n for n in ins if "cable" not in n.lower()), "")
+            changed |= name != self.cfg["mic_device"]
+            self.cfg["mic_device"] = name
+
+        if changed:
+            save_cfg(self.cfg)
 
     def show_cable_hint(self):
         win = ctk.CTkToplevel(self)
@@ -627,7 +832,7 @@ class App(ctk.CTk):
     # ---- проверка микрофона
     def check_virtual_mic(self, on_level):
         """Играет тон в виртуальный микрофон и слушает CABLE Output. Возвращает (слышно?, текст)."""
-        cable_in = list_devices("output").get(self.cfg["cable_device"])
+        cable_in = resolve_device(self.cfg["cable_device"], "output")
         if cable_in is None:
             return False, ("Не выбран «Виртуальный микрофон — выход». Откройте «Настройки» и выберите "
                            "CABLE Input (если его нет в списке, установите VB-CABLE и перезагрузите ПК).")
@@ -639,8 +844,8 @@ class App(ctk.CTk):
         self.engine.stop()
         token = self.engine.token
         targets = [(cable_in, self.cfg["vol_cable"])]
-        monitor = list_devices("output").get(self.cfg["monitor_device"])
-        if monitor is not None:
+        monitor = resolve_device(self.cfg["monitor_device"], "output")
+        if monitor is not None and monitor != cable_in:
             targets.append((monitor, self.cfg["vol_monitor"]))   # писк слышно и в наушниках
 
         def play():
@@ -668,14 +873,11 @@ class App(ctk.CTk):
 
     def check_real_mic(self, on_level):
         """Слушает ваш настоящий микрофон (выбранный в настройках или основной в Windows)."""
-        dev = list_devices("input").get(self.cfg["mic_device"])
+        dev = resolve_device(self.cfg["mic_device"], "input")
         if dev is None:
-            try:
-                dev = sd.default.device[0]
-            except Exception:
-                dev = -1
-            if dev is None or dev < 0:
-                return False, "Микрофон не найден. Выберите его в «Настройки» или подключите."
+            dev = default_device("input")
+        if dev is None:
+            return False, "Микрофон не найден. Выберите его в «Настройки» или подключите."
         peak = record_peak(dev, 6.0, on_level)
         silent = ("Микрофон молчит. Проверьте, что в «Настройки» выбран нужный микрофон, он включён "
                   "в Windows (Параметры → Система → Звук → Ввод) и разрешён для приложений "
@@ -853,6 +1055,7 @@ class App(ctk.CTk):
         self._build_history(self.tabs.tab("История"))
         self._build_settings(self.tabs.tab("Настройки"))
         self._build_check(self.tabs.tab("Проверка"))
+        self.tabs.on_show["Настройки"] = self.refresh_device_lists
 
         # строка состояния
         status_bar = ctk.CTkFrame(self, fg_color=SURFACE, corner_radius=10,
@@ -1422,9 +1625,18 @@ class App(ctk.CTk):
         self.monitor_var = ctk.StringVar(value=self.cfg["monitor_device"] or NONE)
         self.mic_var = ctk.StringVar(value=self.cfg["mic_device"] or NONE)
 
+        head = ctk.CTkFrame(d, fg_color="transparent")
+        head.pack(fill="x", pady=(0, 6))
+        muted_label(head, "Если подключили наушники или микрофон при запущенной программе — "
+                          "нажмите «Обновить».").pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(head, text="Обновить", width=104, height=30, corner_radius=8,
+                      fg_color=SURFACE, hover_color=CARD_HOVER, border_width=1, border_color=BORDER,
+                      text_color=TEXT, font=self.f_small,
+                      command=self.refresh_device_lists).pack(side="right")
+
         muted_label(d, "Виртуальный микрофон — выход в кабель (CABLE Input)").pack(anchor="w")
-        self._menu(d, variable=self.cable_var, values=outs,
-                   command=lambda _v: self.save_settings()).pack(fill="x", pady=(4, 6))
+        self.cable_menu, cable_test = self._device_row(d, self.cable_var, outs)
+        cable_test.configure(command=lambda: self.test_output(self.cable_var))
         self.vol_cable = ctk.CTkSlider(d, from_=0, to=1, height=16, fg_color=BORDER,
                                        progress_color=ACCENT, button_color=TEXT,
                                        button_hover_color="#ffffff",
@@ -1433,14 +1645,19 @@ class App(ctk.CTk):
         self.vol_cable.pack(fill="x", pady=(0, 12))
 
         muted_label(d, "Мои наушники / динамики (чтобы слышать самому)").pack(anchor="w")
-        self._menu(d, variable=self.monitor_var, values=outs,
-                   command=lambda _v: self.save_settings()).pack(fill="x", pady=(4, 6))
+        self.monitor_menu, monitor_test = self._device_row(d, self.monitor_var, outs)
+        monitor_test.configure(command=lambda: self.test_output(self.monitor_var))
         self.vol_monitor = ctk.CTkSlider(d, from_=0, to=1, height=16, fg_color=BORDER,
                                          progress_color=ACCENT, button_color=TEXT,
                                          button_hover_color="#ffffff",
                                          command=lambda v: self.cfg.update(vol_monitor=float(v)))
         self.vol_monitor.set(self.cfg["vol_monitor"])
         self.vol_monitor.pack(fill="x", pady=(0, 12))
+        for slider in (self.vol_cable, self.vol_monitor):
+            try:   # громкость запоминается, когда отпускаем ползунок
+                slider.bind("<ButtonRelease-1>", lambda _e: save_cfg(self.cfg))
+            except Exception:
+                pass
 
         self.pt_switch = ctk.CTkSwitch(d, text="Пропускать мой реальный микрофон в кабель",
                                        fg_color=BORDER, progress_color=ACCENT, button_color=TEXT,
@@ -1449,8 +1666,8 @@ class App(ctk.CTk):
         if self.cfg["passthrough"]:
             self.pt_switch.select()
         self.pt_switch.pack(anchor="w", pady=(0, 8))
-        self._menu(d, variable=self.mic_var, values=ins,
-                   command=lambda _v: self.save_settings()).pack(fill="x", pady=(0, 4))
+        self.mic_menu, mic_test = self._device_row(d, self.mic_var, ins, test_text="🎤")
+        mic_test.configure(command=self.test_mic)
 
         # VB-CABLE
         cab = card(body)
@@ -1474,6 +1691,70 @@ class App(ctk.CTk):
                       fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#ffffff",
                       font=self.f_body, command=self.save_settings).pack(side="right")
 
+    def _device_row(self, parent, variable, values, test_text="▶"):
+        """Список устройств и кнопка проверки рядом: длина списка больше не влияет на вёрстку."""
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=(4, 6))
+        menu = self._menu(row, variable=variable, values=values,
+                          command=lambda _v: self.save_settings())
+        menu.pack(side="left", fill="x", expand=True)
+        btn = ctk.CTkButton(row, text=test_text, width=44, height=36, corner_radius=9,
+                            fg_color=SURFACE, hover_color=CARD_HOVER, border_width=1,
+                            border_color=BORDER, text_color=TEXT, font=self.f_small)
+        btn.pack(side="left", padx=(8, 0))
+        return menu, btn
+
+    def test_output(self, variable):
+        """Писк в выбранное устройство: сразу понятно, туда ли уходит звук."""
+        dev = resolve_device(variable.get(), "output")
+        if dev is None:
+            self.report("Сначала выберите устройство вывода")
+            return
+        self.engine.beep(dev)
+        try:
+            name = sd.query_devices(dev)["name"]
+        except Exception:
+            name = variable.get()
+        self.report(f"Писк в «{name}»")
+
+    def test_mic(self):
+        """Три секунды слушает выбранный микрофон и показывает уровень в строке состояния."""
+        dev = resolve_device(self.mic_var.get(), "input")
+        if dev is None:
+            self.report("Сначала выберите микрофон")
+            return
+        self.report("Слушаю микрофон 3 секунды: скажите что-нибудь…")
+
+        def worker():
+            try:
+                peak = record_peak(dev, 3.0, lambda _v: None)
+            except Exception as e:
+                self.report(f"Микрофон недоступен: {e}")
+                return
+            _ok, msg = verdict(
+                peak,
+                "Микрофон слышно. Если вас всё равно не слышно в игре — включите пропуск микрофона",
+                "Микрофон молчит: проверьте, что он включён в Windows и разрешён приложениям",
+                "Микрофон слышно, но очень тихо: увеличьте его громкость в параметрах Windows")
+            self.report(msg)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def refresh_device_lists(self):
+        """Перечитывает устройства: Bluetooth-наушники видны только после переподключения."""
+        self._guess_devices()
+        outs = [NONE] + list(list_devices("output"))
+        ins = [NONE] + list(list_devices("input"))
+        self.cable_menu.configure(values=outs)
+        self.monitor_menu.configure(values=outs)
+        self.mic_menu.configure(values=ins)
+        self.cable_var.set(self.cfg["cable_device"] or NONE)
+        self.monitor_var.set(self.cfg["monitor_device"] or NONE)
+        self.mic_var.set(self.cfg["mic_device"] or NONE)
+        save_cfg(self.cfg)
+        self.engine.restart_passthrough()
+        self.report("Список устройств обновлён")
+
     def live_save(self, key, value):
         """Ключ и модель применяются сразу при вводе или вставке, без кнопки «Сохранить»."""
         self.cfg[key] = value or (DEFAULT_MODEL if key == "model" else "")
@@ -1488,6 +1769,8 @@ class App(ctk.CTk):
             monitor_device=un(self.monitor_var.get()),
             mic_device=un(self.mic_var.get()),
             passthrough=bool(self.pt_switch.get()),
+            vol_cable=float(self.vol_cable.get()),
+            vol_monitor=float(self.vol_monitor.get()),
         )
         save_cfg(self.cfg)
         self.engine.restart_passthrough()
