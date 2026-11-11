@@ -3,708 +3,929 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VoicePad — проект саундпада и озвучки для Windows</title>
-<meta name="description" content="VoicePad — проект саундпада для Windows с озвучкой текста нейросетью. Сейчас приложение в закрытой бете: публичных сборок пока нет, но за разработкой можно следить на GitHub.">
-<meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)">
+<title>VoicePad — саундпад и озвучка для Windows</title>
+<meta name="description" content="VoicePad — проект саундпада для Windows с озвучкой текста нейросетью. Приложение в закрытой бете: публичных сборок пока нет, за разработкой можно следить на GitHub.">
+<meta name="theme-color" content="#0b0e13" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f8fc" media="(prefers-color-scheme: light)">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="VoicePad">
-<meta property="og:title" content="VoicePad — проект голосового саундпада для Windows">
-<meta property="og:description" content="Озвучка текста нейросетью и саундпад с горячими клавишами. Приложение в закрытой бете, публичный релиз — позже.">
+<meta property="og:title" content="VoicePad — голосовой саундпад для Windows">
+<meta property="og:description" content="Озвучка текста нейросетью и саундпад с горячими клавишами. Приложение в закрытой бете.">
 <meta property="og:url" content="https://voicepad.cc.cd/">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%235b8cff'/%3E%3Cpath d='M16 18h11l5 19 5-19h11L37 46H27z' fill='white'/%3E%3C/svg%3E">
 <style>
+  /* ------------------------------------------------------------------
+     Токены. Все отступы кратны 4px, поэтому блоки стоят на одной сетке.
+     ------------------------------------------------------------------ */
   :root {
     color-scheme: dark;
-    --bg:#0e1116; --surface:#151a21; --card:#1b212b; --card-hover:#232b38;
-    --border:#28303d; --text:#e6ebf2; --muted:#8a94a6;
-    --accent:#5b8cff; --accent-hover:#7aa2ff; --accent-soft:#243356;
-    --danger:#e05a5a; --success:#42c98a; --warn:#f0b429;
-    --nav-bg:rgba(14,17,22,.82);
-    --radius:16px; --max:1120px;
-    --shadow:0 24px 70px rgba(0,0,0,.45);
+    --bg: #0b0e13;
+    --surface: #11161f;
+    --card: #161c27;
+    --card-hover: #1d2532;
+    --border: #242e3d;
+    --border-soft: #1c2532;
+    --text: #eef2f8;
+    --muted: #8b96a8;
+    --accent: #5b8cff;
+    --accent-hover: #7aa2ff;
+    --accent-soft: #1e2d4d;
+    --success: #42c98a;
+    --warn: #f0b429;
+    --fall-1: #5b8cff;
+    --fall-2: #8f6bff;
+    --fall-3: #42c98a;
+
+    --s-1: 4px;
+    --s-2: 8px;
+    --s-3: 12px;
+    --s-4: 16px;
+    --s-5: 24px;
+    --s-6: 32px;
+    --s-7: 48px;
+    --s-8: 64px;
+    --s-9: 80px;
+    --s-10: 104px;
+    --s-11: 128px;
+
+    --gutter: clamp(20px, 5vw, 32px);
+    --max: 1120px;
+    --r-2: 12px;
+    --r-3: 18px;
+    --r-4: 24px;
+    --r-5: 32px;
+    --shadow: 0 30px 80px rgba(0, 0, 0, .45);
+    --nav-bg: rgba(11, 14, 19, .78);
   }
+
   @media (prefers-color-scheme: light) {
     :root {
       color-scheme: light;
-      --bg:#f5f7fb; --surface:#ffffff; --card:#ffffff; --card-hover:#eef2f9;
-      --border:#dce3ef; --text:#121821; --muted:#5b6678;
-      --accent:#2f63d8; --accent-hover:#1f4fbd; --accent-soft:#e3ebff;
-      --danger:#c93f3f; --success:#1c9a63; --warn:#b7791f;
-      --nav-bg:rgba(245,247,251,.86);
-      --shadow:0 20px 55px rgba(20,35,70,.14);
+      --bg: #f6f8fc;
+      --surface: #ffffff;
+      --card: #ffffff;
+      --card-hover: #f1f4fa;
+      --border: #dfe5ef;
+      --border-soft: #e8edf5;
+      --text: #10151d;
+      --muted: #5c6779;
+      --accent: #2f63d8;
+      --accent-hover: #1f4fbd;
+      --accent-soft: #e6eeff;
+      --success: #178a58;
+      --warn: #a8681a;
+      --fall-1: #2f63d8;
+      --fall-2: #7b5bff;
+      --fall-3: #178a58;
+      --shadow: 0 24px 60px rgba(22, 38, 74, .12);
+      --nav-bg: rgba(246, 248, 252, .82);
     }
   }
-  * { box-sizing:border-box; }
-  html { scroll-behavior:smooth; }
-  body {
-    margin:0;
-    font:16px/1.6 ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
-    color:var(--text);
-    background:
-      radial-gradient(900px 520px at 12% -10%, rgba(91,140,255,.18), transparent 62%),
-      radial-gradient(760px 460px at 102% 2%, rgba(66,201,138,.10), transparent 58%),
-      var(--bg);
-    -webkit-font-smoothing:antialiased;
-  }
-  a { color:var(--accent); }
-  a:focus-visible, summary:focus-visible, .btn:focus-visible {
-    outline:2px solid var(--accent); outline-offset:3px; border-radius:10px;
-  }
-  .skip {
-    position:absolute; left:-9999px; top:8px; z-index:100;
-    background:var(--accent); color:#fff; padding:10px 16px; border-radius:10px;
-  }
-  .skip:focus { left:12px; }
 
-  /* ---------- шапка ---------- */
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1000px 600px at 10% -12%, rgba(91, 140, 255, .16), transparent 62%),
+      radial-gradient(900px 520px at 104% 4%, rgba(143, 107, 255, .11), transparent 58%),
+      var(--bg);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
+  .skip {
+    position: absolute; left: -9999px; top: 8px; z-index: 100;
+    background: var(--accent); color: #fff; padding: 12px 18px; border-radius: 10px;
+  }
+  .skip:focus { left: 12px; }
+
+  /* фон с падающими фигурами */
+  #fall {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    z-index: 0; pointer-events: none;
+  }
+  .page { position: relative; z-index: 1; }
+
+  .wrap {
+    width: min(var(--max), 100% - var(--gutter) * 2);
+    margin-inline: auto;
+  }
+
+  /* ------------------------------------------------------------------
+     Шапка
+     ------------------------------------------------------------------ */
   .nav {
-    position:sticky; top:0; z-index:50;
-    background:var(--nav-bg);
-    -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
-    border-bottom:1px solid var(--border);
+    position: sticky; top: 0; z-index: 50;
+    background: var(--nav-bg);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+    border-bottom: 1px solid var(--border-soft);
   }
   .nav-inner {
-    max-width:var(--max); margin:0 auto; padding:12px 22px;
-    display:flex; align-items:center; gap:22px;
+    display: flex; align-items: center; gap: var(--s-5);
+    min-height: 64px;
   }
-  .brand { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--text); font-weight:700; }
+  .brand {
+    display: flex; align-items: center; gap: var(--s-3);
+    color: var(--text); text-decoration: none; font-weight: 700;
+    letter-spacing: -.01em; font-size: 17px;
+  }
   .mark {
-    width:36px; height:36px; border-radius:11px;
-    background:linear-gradient(135deg, var(--accent), #8f6bff);
-    display:grid; place-items:center; color:#fff; font-weight:800; font-size:19px;
-    box-shadow:0 8px 22px rgba(91,140,255,.35);
+    width: 34px; height: 34px; border-radius: 10px;
+    display: grid; place-items: center;
+    color: #fff; font-weight: 800; font-size: 18px;
+    background: linear-gradient(140deg, var(--accent), #8f6bff);
+    box-shadow: 0 8px 22px rgba(91, 140, 255, .32);
   }
-  .brand span { font-size:17px; letter-spacing:-.01em; }
-  .nav-links { display:flex; align-items:center; gap:20px; margin-left:auto; }
-  .nav-links a { color:var(--muted); text-decoration:none; font-size:14px; transition:color .16s; }
-  .nav-links a:hover { color:var(--text); }
-
-  /* ---------- метки состояния ---------- */
+  .nav-links {
+    display: flex; align-items: center; gap: var(--s-5);
+    margin-left: auto;
+  }
+  .nav-links a {
+    color: var(--muted); text-decoration: none; font-size: 14px;
+    transition: color .18s ease;
+  }
+  .nav-links a:hover { color: var(--text); }
   .pill {
-    display:inline-flex; align-items:center; gap:9px;
-    padding:7px 14px; border-radius:999px;
-    border:1px solid var(--border); background:var(--surface);
-    color:var(--muted); font-size:13px; white-space:nowrap;
+    display: inline-flex; align-items: center; gap: var(--s-2);
+    padding: 7px 14px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); font-size: 13px; white-space: nowrap;
   }
   .dot {
-    width:8px; height:8px; border-radius:50%; background:var(--success);
-    box-shadow:0 0 0 4px rgba(66,201,138,.16); flex:none;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--success);
+    box-shadow: 0 0 0 4px rgba(66, 201, 138, .15); flex: none;
   }
-  .pill.warn .dot { background:var(--warn); box-shadow:0 0 0 4px rgba(240,180,41,.18); }
-  .chip {
-    display:inline-block; padding:3px 10px; border-radius:999px;
-    font-size:12px; font-weight:600; letter-spacing:.01em;
-  }
-  .chip.done { background:rgba(66,201,138,.14); color:var(--success); }
-  .chip.wip { background:rgba(240,180,41,.14); color:var(--warn); }
-  .chip.next { background:var(--accent-soft); color:var(--accent); }
+  .pill.warn .dot { background: var(--warn); box-shadow: 0 0 0 4px rgba(240, 180, 41, .16); }
 
-  /* ---------- кнопки ---------- */
+  /* ------------------------------------------------------------------
+     Кнопки
+     ------------------------------------------------------------------ */
   .btn {
-    display:inline-flex; align-items:center; justify-content:center; gap:9px;
-    padding:13px 21px; border-radius:12px; font-weight:600; font-size:15px;
-    text-decoration:none; border:1px solid transparent; cursor:pointer;
-    transition:background .16s, transform .16s, border-color .16s;
+    display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
+    min-height: 48px; padding: 0 var(--s-5);
+    border: 1px solid transparent; border-radius: var(--r-2);
+    font-size: 15px; font-weight: 600; text-decoration: none; color: var(--text);
+    cursor: pointer; transition: background .18s ease, transform .18s ease, border-color .18s ease;
   }
-  .btn svg { flex:none; }
+  .btn svg { flex: none; }
   .btn.primary {
-    background:var(--accent); color:#fff;
-    box-shadow:0 12px 30px rgba(91,140,255,.32);
+    background: var(--accent); color: #fff;
+    box-shadow: 0 14px 34px rgba(91, 140, 255, .28);
   }
-  .btn.primary:hover { background:var(--accent-hover); transform:translateY(-1px); }
-  .btn.ghost { background:var(--surface); color:var(--text); border-color:var(--border); }
-  .btn.ghost:hover { background:var(--card-hover); }
+  .btn.primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+  .btn.ghost { background: var(--surface); border-color: var(--border); }
+  .btn.ghost:hover { background: var(--card-hover); }
 
-  /* ---------- герой ---------- */
-  .hero {
-    max-width:var(--max); margin:0 auto; padding:76px 22px 44px;
-    display:grid; grid-template-columns:1.04fr .96fr; gap:52px; align-items:center;
+  /* ------------------------------------------------------------------
+     Первый экран
+     ------------------------------------------------------------------ */
+  .hero { padding-block: clamp(56px, 7vw, 88px) clamp(24px, 3vw, 40px); }
+  .hero-grid {
+    display: grid; grid-template-columns: 1.05fr .95fr;
+    gap: clamp(32px, 6vw, 72px); align-items: center;
   }
-  .badge {
-    display:inline-flex; align-items:center; gap:9px;
-    padding:6px 13px; border-radius:999px;
-    border:1px solid var(--border); background:var(--surface);
-    color:var(--muted); font-size:13px;
+  .eyebrow {
+    color: var(--accent); font-size: 12px; font-weight: 700;
+    letter-spacing: .14em; text-transform: uppercase;
   }
-  h1 {
-    margin:20px 0 16px; font-size:clamp(34px, 5vw, 56px);
-    line-height:1.05; letter-spacing:-.025em;
+  .hero h1 {
+    margin: var(--s-4) 0 var(--s-5);
+    font-size: clamp(34px, 5vw, 56px);
+    line-height: 1.05; letter-spacing: -.035em;
+    text-wrap: balance;
   }
   .grad {
-    background:linear-gradient(115deg, var(--accent), #9d7bff 55%, var(--success));
-    -webkit-background-clip:text; background-clip:text; color:transparent;
+    background: linear-gradient(112deg, var(--accent) 8%, #9d7bff 56%, var(--success) 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .lead { margin:0 0 26px; max-width:560px; color:var(--muted); font-size:18px; }
-  .actions { display:flex; flex-wrap:wrap; gap:12px; }
-  .meta { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:18px; color:var(--muted); font-size:13px; }
-  .meta span { display:inline-flex; align-items:center; gap:7px; }
-  .meta svg { color:var(--success); }
-  .note { margin:16px 0 0; color:var(--muted); font-size:12.5px; max-width:520px; }
-  .note b { color:var(--text); }
+  .lead {
+    margin: 0 0 var(--s-6);
+    max-width: 34rem;
+    color: var(--muted); font-size: clamp(17px, 1.6vw, 19px); line-height: 1.6;
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: var(--s-3); }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5);
+    margin-top: var(--s-5); color: var(--muted); font-size: 13px;
+  }
+  .meta span { display: inline-flex; align-items: center; gap: var(--s-2); }
+  .meta svg { color: var(--success); }
+  .note {
+    margin: var(--s-5) 0 0; max-width: 34rem;
+    color: var(--muted); font-size: 13.5px; line-height: 1.6;
+  }
+  .note b { color: var(--text); }
 
-  /* ---------- макет окна ---------- */
+  /* макет окна */
   .mock {
-    position:relative; border-radius:20px; padding:14px;
-    border:1px solid var(--border);
-    background:linear-gradient(180deg, var(--surface), var(--bg));
-    box-shadow:var(--shadow);
+    position: relative; border-radius: var(--r-4);
+    padding: var(--s-3);
+    background: linear-gradient(180deg, var(--surface), var(--bg));
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
   }
   .mock::before {
-    content:""; position:absolute; inset:-1px; z-index:-1; border-radius:21px;
-    background:linear-gradient(135deg, rgba(91,140,255,.55), transparent 42%, rgba(66,201,138,.4));
-    filter:blur(20px); opacity:.5;
+    content: ""; position: absolute; inset: -1px; z-index: -1; border-radius: calc(var(--r-4) + 1px);
+    background: linear-gradient(135deg, rgba(91, 140, 255, .5), transparent 44%, rgba(66, 201, 138, .38));
+    filter: blur(22px); opacity: .5;
   }
-  .mock-bar { display:flex; gap:6px; padding:2px 4px 12px; }
-  .mock-bar i { width:10px; height:10px; border-radius:50%; background:var(--border); }
-  .mock-body { display:grid; grid-template-columns:104px 1fr; gap:10px; }
+  .mock-bar { display: flex; gap: 6px; padding: 2px 4px var(--s-3); }
+  .mock-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
+  .mock-body { display: grid; grid-template-columns: 104px 1fr; gap: var(--s-2); }
   .mock-side {
-    display:flex; flex-direction:column; gap:6px; padding:10px 8px;
-    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: var(--s-3) var(--s-2); border-radius: var(--r-2);
+    background: var(--card); border: 1px solid var(--border-soft);
   }
-  .mock-side b { display:block; height:25px; border-radius:7px; background:var(--card-hover); }
+  .mock-side b { display: block; height: 24px; border-radius: 7px; background: var(--card-hover); }
   .mock-side b:first-child {
-    background:var(--accent-soft);
-    border:1px solid rgba(91,140,255,.4);
+    background: var(--accent-soft);
+    border: 1px solid rgba(91, 140, 255, .4);
   }
-  .mock-main { display:flex; flex-direction:column; gap:10px; min-width:0; }
-  .mock-card { padding:12px; background:var(--card); border:1px solid var(--border); border-radius:12px; }
-  .mock-line { height:9px; border-radius:5px; background:var(--border); margin-bottom:8px; }
-  .mock-line:last-child { margin-bottom:0; }
-  .w35{width:35%} .w45{width:45%} .w60{width:60%} .w75{width:75%} .w90{width:90%}
-  .mock-row { display:flex; align-items:center; gap:8px; }
-  .mock-pill { height:26px; width:94px; border-radius:8px; background:var(--accent); opacity:.92; }
-  .mock-pill.alt { background:var(--card-hover); border:1px solid var(--border); }
-  .mock-eq { display:flex; align-items:flex-end; gap:4px; height:34px; margin-top:4px; }
-  .mock-eq i { flex:1; border-radius:3px 3px 0 0; background:linear-gradient(180deg,var(--accent),var(--success)); opacity:.75; }
-
-  /* ---------- секции ---------- */
-  .section { max-width:var(--max); margin:0 auto; padding:58px 22px; scroll-margin-top:78px; }
-  .section-head { max-width:700px; margin-bottom:30px; }
-  .eyebrow { color:var(--accent); font-size:12.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
-  h2 { margin:10px 0 10px; font-size:clamp(26px, 3.4vw, 37px); letter-spacing:-.02em; line-height:1.15; }
-  .section-head p { margin:0; color:var(--muted); }
-
-  .grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:14px; }
-  .feature {
-    padding:20px; border-radius:var(--radius);
-    background:var(--card); border:1px solid var(--border);
-    transition:background .16s, transform .16s;
+  .mock-main { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+  .mock-card {
+    padding: var(--s-3); border-radius: var(--r-2);
+    background: var(--card); border: 1px solid var(--border-soft);
   }
-  .feature:hover { background:var(--card-hover); transform:translateY(-2px); }
+  .mock-line { height: 8px; border-radius: 5px; background: var(--border); margin-bottom: var(--s-2); }
+  .mock-line:last-child { margin-bottom: 0; }
+  .w35 { width: 35%; } .w45 { width: 45%; } .w60 { width: 60%; } .w75 { width: 75%; } .w90 { width: 90%; }
+  .mock-row { display: flex; align-items: center; gap: var(--s-2); }
+  .mock-pill { height: 26px; width: 96px; border-radius: 8px; background: var(--accent); }
+  .mock-pill.alt { background: var(--card-hover); border: 1px solid var(--border); }
+  .mock-eq { display: flex; align-items: flex-end; gap: 4px; height: 36px; margin-top: var(--s-2); }
+  .mock-eq i {
+    flex: 1; border-radius: 3px 3px 0 0;
+    background: linear-gradient(180deg, var(--accent), var(--success)); opacity: .72;
+  }
+
+  /* ------------------------------------------------------------------
+     Секции: один ритм отступов для всех блоков
+     ------------------------------------------------------------------ */
+  .section { padding-block: clamp(56px, 6vw, 80px); }
+  .section-head { max-width: 44rem; margin-bottom: clamp(28px, 3.5vw, 48px); }
+  .section-head h2 {
+    margin: var(--s-3) 0 var(--s-4);
+    font-size: clamp(28px, 4vw, 44px);
+    line-height: 1.1; letter-spacing: -.03em;
+    text-wrap: balance;
+  }
+  .section-head p { margin: 0; color: var(--muted); font-size: 17px; line-height: 1.65; }
+
+  .grid { display: grid; gap: var(--s-4); }
+  .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+  .card {
+    padding: var(--s-5);
+    border-radius: var(--r-3);
+    background: var(--card);
+    border: 1px solid var(--border-soft);
+    transition: background .18s ease, transform .18s ease, border-color .18s ease;
+  }
+  .card.hover:hover {
+    background: var(--card-hover);
+    border-color: var(--border);
+    transform: translateY(-2px);
+  }
+  .card h3 {
+    margin: 0 0 var(--s-2);
+    font-size: 17px; letter-spacing: -.01em;
+  }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.6; }
+
   .icon {
-    width:40px; height:40px; border-radius:11px; margin-bottom:14px;
-    display:grid; place-items:center;
-    background:var(--accent-soft); color:var(--accent);
+    width: 40px; height: 40px; margin-bottom: var(--s-4);
+    display: grid; place-items: center;
+    border-radius: var(--r-2);
+    background: var(--accent-soft); color: var(--accent);
   }
-  .feature h3 { margin:0 0 6px; font-size:16px; letter-spacing:-.01em; }
-  .feature p { margin:0; color:var(--muted); font-size:14px; }
 
-  /* ---------- статус ---------- */
-  .status-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
-  .status-card {
-    padding:22px 20px; border-radius:var(--radius);
-    background:var(--card); border:1px solid var(--border);
+  .chip {
+    display: inline-block; padding: 4px 11px; border-radius: 999px;
+    font-size: 12px; font-weight: 600;
   }
-  .status-card h3 { margin:12px 0 10px; font-size:16px; }
-  .status-card ul { margin:0; padding-left:18px; color:var(--muted); font-size:14px; }
-  .status-card li { margin-bottom:6px; }
-  .status-card li:last-child { margin-bottom:0; }
+  .chip.done { background: rgba(66, 201, 138, .13); color: var(--success); }
+  .chip.wip { background: rgba(240, 180, 41, .13); color: var(--warn); }
+  .chip.next { background: var(--accent-soft); color: var(--accent); }
+  .card ul { margin: var(--s-3) 0 0; padding-left: var(--s-5); color: var(--muted); font-size: 14.5px; }
+  .card li + li { margin-top: var(--s-2); }
 
-  .steps { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
-  .step {
-    padding:24px 20px 20px; border-radius:var(--radius);
-    background:var(--card); border:1px solid var(--border);
+  /* шаги */
+  .step .num {
+    width: 34px; height: 34px; margin-bottom: var(--s-4);
+    display: grid; place-items: center;
+    border-radius: 10px; color: #fff; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), #8f6bff);
   }
-  .num {
-    width:34px; height:34px; margin-bottom:14px; border-radius:10px;
-    display:grid; place-items:center; font-weight:700; color:#fff;
-    background:linear-gradient(135deg, var(--accent), #8f6bff);
-  }
-  .step h3 { margin:0 0 6px; font-size:16px; }
-  .step p { margin:0; color:var(--muted); font-size:14px; }
 
-  /* ---------- требования / приватность ---------- */
-  .split { display:grid; grid-template-columns:1.05fr .95fr; gap:14px; }
-  .panel {
-    padding:24px; border-radius:var(--radius);
-    background:var(--card); border:1px solid var(--border);
-  }
-  .panel h3 { margin:0 0 14px; font-size:17px; }
-  .checks { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:11px; }
-  .checks li { display:flex; gap:10px; color:var(--muted); font-size:14.5px; }
-  .checks svg { flex:none; margin-top:3px; color:var(--success); }
-  .checks b { color:var(--text); font-weight:600; }
+  /* списки с галочками */
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
+  .checks li { display: flex; gap: var(--s-3); color: var(--muted); font-size: 14.5px; line-height: 1.55; }
+  .checks svg { flex: none; margin-top: 2px; color: var(--success); }
+  .checks b { color: var(--text); font-weight: 600; }
+
   .tip {
-    display:flex; gap:12px; padding:14px; border-radius:12px;
-    background:var(--accent-soft); border:1px solid rgba(91,140,255,.28);
-    color:var(--muted); font-size:14px;
+    display: flex; gap: var(--s-3);
+    padding: var(--s-4);
+    border-radius: var(--r-2);
+    background: var(--accent-soft);
+    border: 1px solid rgba(91, 140, 255, .26);
+    color: var(--muted); font-size: 14px; line-height: 1.55;
   }
-  .tip svg { flex:none; color:var(--accent); margin-top:2px; }
-  .tip b { color:var(--text); }
+  .tip + .tip { margin-top: var(--s-3); }
+  .tip svg { flex: none; color: var(--accent); margin-top: 2px; }
+  .tip b { color: var(--text); }
+  code {
+    padding: 2px 6px; border-radius: 6px;
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text);
+  }
 
-  /* ---------- FAQ ---------- */
-  .faq { display:flex; flex-direction:column; gap:10px; }
+  /* FAQ */
+  .faq { display: grid; gap: var(--s-3); max-width: 52rem; }
   details {
-    border-radius:12px; background:var(--card); border:1px solid var(--border);
-    overflow:hidden;
+    border-radius: var(--r-2);
+    background: var(--card);
+    border: 1px solid var(--border-soft);
+    overflow: hidden;
   }
   summary {
-    cursor:pointer; padding:16px 18px; font-weight:600; font-size:15px;
-    display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
-    list-style:none;
+    display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-4);
+    padding: var(--s-4) var(--s-5);
+    font-size: 15px; font-weight: 600; cursor: pointer; list-style: none;
   }
-  summary::-webkit-details-marker { display:none; }
-  summary::after { content:"+"; color:var(--muted); font-weight:400; font-size:21px; line-height:1; }
-  details[open] summary::after { content:"–"; }
-  details[open] summary { color:var(--text); }
-  .answer { padding:0 18px 16px; color:var(--muted); font-size:14.5px; }
-  .answer p { margin:0 0 8px; }
-  .answer p:last-child { margin-bottom:0; }
-  .answer code {
-    padding:2px 6px; border-radius:6px; background:var(--surface);
-    border:1px solid var(--border); font-size:13px; color:var(--text);
-  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; color: var(--muted); font-weight: 400; font-size: 22px; line-height: 1; }
+  details[open] summary::after { content: "–"; }
+  .answer { padding: 0 var(--s-5) var(--s-4); color: var(--muted); font-size: 14.5px; line-height: 1.65; }
+  .answer p { margin: 0; }
+  .answer p + p { margin-top: var(--s-2); }
 
-  /* ---------- финальный блок ---------- */
-  .cta { max-width:var(--max); margin:8px auto 0; padding:0 22px 72px; }
+  /* финальный блок */
+  .cta { padding-block: 0 clamp(64px, 8vw, 104px); }
   .cta-inner {
-    display:flex; align-items:center; justify-content:space-between; gap:26px; flex-wrap:wrap;
-    padding:38px; border-radius:24px;
-    background:linear-gradient(135deg, var(--surface), var(--card));
-    border:1px solid var(--border); box-shadow:var(--shadow);
+    display: flex; align-items: center; justify-content: space-between; gap: var(--s-6);
+    flex-wrap: wrap;
+    padding: clamp(28px, 5vw, 48px);
+    border-radius: var(--r-4);
+    background: linear-gradient(140deg, var(--surface), var(--card));
+    border: 1px solid var(--border-soft);
+    box-shadow: var(--shadow);
   }
-  .cta-inner h2 { margin:0 0 6px; }
-  .cta-inner p { margin:0; color:var(--muted); }
+  .cta-inner h2 { margin: 0 0 var(--s-2); font-size: clamp(24px, 3vw, 34px); letter-spacing: -.025em; }
+  .cta-inner p { margin: 0; color: var(--muted); max-width: 34rem; }
 
-  /* ---------- подвал ---------- */
-  footer { border-top:1px solid var(--border); background:var(--surface); }
+  /* подвал */
+  footer { border-top: 1px solid var(--border-soft); background: var(--surface); }
   .foot {
-    max-width:var(--max); margin:0 auto; padding:28px 22px;
-    display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap;
-    color:var(--muted); font-size:13.5px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--s-4); flex-wrap: wrap;
+    padding-block: var(--s-6);
+    color: var(--muted); font-size: 13.5px;
   }
-  .foot-links { display:flex; flex-wrap:wrap; gap:18px; }
-  .foot a { color:var(--muted); text-decoration:none; }
-  .foot a:hover { color:var(--text); }
+  .foot-links { display: flex; flex-wrap: wrap; gap: var(--s-5); }
+  .foot a { color: var(--muted); text-decoration: none; }
+  .foot a:hover { color: var(--text); }
 
-  @media (max-width: 980px) {
-    .hero { grid-template-columns:1fr; gap:38px; padding-top:52px; }
-    .mock { max-width:560px; }
-    .grid { grid-template-columns:repeat(2, 1fr); }
-    .status-grid, .steps { grid-template-columns:1fr; }
-    .split { grid-template-columns:1fr; }
-    .nav-links { display:none; }
+  /* ------------------------------------------------------------------
+     Адаптив: те же отступы, другая сетка
+     ------------------------------------------------------------------ */
+  @media (max-width: 960px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .mock { max-width: 560px; }
+    .nav-links { display: none; }
+    .grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+    .grid.cols-3 { grid-template-columns: 1fr; }
+    .grid.cols-2 { grid-template-columns: 1fr; }
   }
-  @media (max-width: 700px) {
-    .grid { grid-template-columns:1fr; }
-    .section { padding:44px 18px; }
-    .hero { padding:42px 18px 26px; }
-    .nav-inner { padding:10px 18px; }
-    .cta { padding:0 18px 52px; }
-    .cta-inner { padding:26px; }
-    .actions .btn { width:100%; }
+  @media (max-width: 620px) {
+    .grid.cols-4 { grid-template-columns: 1fr; }
+    .actions .btn { width: 100%; }
+    .meta { gap: var(--s-2) var(--s-4); }
+    .mock-body { grid-template-columns: 84px 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
-    html { scroll-behavior:auto; }
-    * { transition:none !important; }
+    html { scroll-behavior: auto; }
+    * { transition: none !important; }
+    #fall { display: none; }
   }
 </style>
 </head>
 <body>
 <a class="skip" href="#main">Перейти к содержимому</a>
+<canvas id="fall" aria-hidden="true"></canvas>
 
-<header class="nav">
-  <div class="nav-inner">
-    <a class="brand" href="#top" aria-label="VoicePad — на главную">
-      <span class="mark" aria-hidden="true">V</span>
-      <span>VoicePad</span>
-    </a>
-    <nav class="nav-links" aria-label="Разделы страницы">
-      <a href="#status">Статус</a>
-      <a href="#features">Возможности</a>
-      <a href="#how">Как это работает</a>
-      <a href="#requirements">Требования</a>
-      <a href="#faq">Вопросы</a>
-      <a href="https://github.com/v1sor781/voicepad" rel="noopener">GitHub</a>
-    </nav>
-    <span class="pill warn"><span class="dot" aria-hidden="true"></span>Закрытая бета</span>
-  </div>
-</header>
-
-<main id="main">
-  <section class="hero" id="top">
-    <div>
-      <div class="badge">
-        <span class="dot" aria-hidden="true"></span>
-        Проект в разработке · Windows 10/11
-      </div>
-      <h1>Твой голос и звуки — <span class="grad">в игре и Discord</span></h1>
-      <p class="lead">
-        VoicePad озвучивает текст нейросетью и отправляет звук прямо в виртуальный микрофон.
-        Пишете фразу — собеседники слышат её как ваш голос. Плюс саундпад для мемов
-        и горячих клавиш.
-      </p>
-
-      <div class="actions">
-        <a class="btn primary" href="https://github.com/v1sor781/voicepad" rel="noopener">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.42c.58.1.79-.25.79-.55v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.14v3.17c0 .3.21.66.8.55A11.5 11.5 0 0 0 12 .5z"/></svg>
-          Следить на GitHub
-        </a>
-        <a class="btn ghost" href="#features">Что уже готово</a>
-      </div>
-
-      <div class="meta">
-        <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Планируется бесплатно</span>
-        <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Открытый исходный код</span>
-        <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Без рекламы и телеметрии</span>
-      </div>
-
-      <p class="note">
-        <b>Публичных сборок пока нет.</b> Приложение проходит закрытое тестирование: мы доводим
-        до стабильности интерфейс, установку и работу с виртуальным микрофоном. Когда всё будет
-        готово, здесь появятся ссылки на скачивание.
-      </p>
+<div class="page">
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top" aria-label="VoicePad — на главную">
+        <span class="mark" aria-hidden="true">V</span>
+        <span>VoicePad</span>
+      </a>
+      <nav class="nav-links" aria-label="Разделы страницы">
+        <a href="#status">Статус</a>
+        <a href="#features">Возможности</a>
+        <a href="#how">Как работает</a>
+        <a href="#requirements">Требования</a>
+        <a href="#faq">Вопросы</a>
+        <a href="https://github.com/v1sor781/voicepad" rel="noopener">GitHub</a>
+      </nav>
+      <span class="pill warn"><span class="dot" aria-hidden="true"></span>Закрытая бета</span>
     </div>
+  </header>
 
-    <div class="mock" aria-hidden="true">
-      <div class="mock-bar"><i></i><i></i><i></i></div>
-      <div class="mock-body">
-        <div class="mock-side">
-          <b></b><b></b><b></b><b></b><b></b><b></b>
+  <main id="main">
+    <section class="hero" id="top">
+      <div class="wrap hero-grid">
+        <div>
+          <div class="eyebrow">Проект в разработке · Windows 10/11</div>
+          <h1>Твой голос и звуки — <span class="grad">в игре и Discord</span></h1>
+          <p class="lead">
+            VoicePad озвучивает текст нейросетью и отправляет звук прямо в виртуальный микрофон.
+            Пишете фразу — собеседники слышат её как ваш голос. Плюс саундпад для мемов
+            и горячих клавиш.
+          </p>
+
+          <div class="actions">
+            <a class="btn primary" href="https://github.com/v1sor781/voicepad" rel="noopener">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.42c.58.1.79-.25.79-.55v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.14v3.17c0 .3.21.66.8.55A11.5 11.5 0 0 0 12 .5z"/></svg>
+              Следить на GitHub
+            </a>
+            <a class="btn ghost" href="#features">Что уже готово</a>
+          </div>
+
+          <div class="meta">
+            <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Планируется бесплатно</span>
+            <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Открытый код</span>
+            <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Без рекламы и телеметрии</span>
+          </div>
+
+          <p class="note">
+            <b>Публичных сборок пока нет.</b> Приложение проходит закрытое тестирование:
+            доводим до стабильности интерфейс, установку и работу с виртуальным микрофоном.
+            Когда всё будет готово, здесь появятся ссылки на скачивание.
+          </p>
         </div>
-        <div class="mock-main">
-          <div class="mock-card">
-            <div class="mock-line w35"></div>
-            <div class="mock-line w90"></div>
-            <div class="mock-line w75"></div>
-            <div class="mock-row" style="margin-top:12px">
-              <span class="mock-pill"></span>
-              <span class="mock-pill alt"></span>
+
+        <div class="mock" aria-hidden="true">
+          <div class="mock-bar"><i></i><i></i><i></i></div>
+          <div class="mock-body">
+            <div class="mock-side"><b></b><b></b><b></b><b></b><b></b><b></b></div>
+            <div class="mock-main">
+              <div class="mock-card">
+                <div class="mock-line w35"></div>
+                <div class="mock-line w90"></div>
+                <div class="mock-line w75"></div>
+                <div class="mock-row" style="margin-top:12px">
+                  <span class="mock-pill"></span>
+                  <span class="mock-pill alt"></span>
+                </div>
+              </div>
+              <div class="mock-card">
+                <div class="mock-line w45"></div>
+                <div class="mock-eq">
+                  <i style="height:35%"></i><i style="height:70%"></i><i style="height:50%"></i>
+                  <i style="height:95%"></i><i style="height:62%"></i><i style="height:40%"></i>
+                  <i style="height:80%"></i><i style="height:55%"></i><i style="height:28%"></i>
+                  <i style="height:66%"></i>
+                </div>
+              </div>
+              <div class="mock-card">
+                <div class="mock-line w60"></div>
+                <div class="mock-line w90"></div>
+              </div>
             </div>
           </div>
-          <div class="mock-card">
-            <div class="mock-line w45"></div>
-            <div class="mock-eq">
-              <i style="height:35%"></i><i style="height:70%"></i><i style="height:50%"></i>
-              <i style="height:95%"></i><i style="height:62%"></i><i style="height:40%"></i>
-              <i style="height:80%"></i><i style="height:55%"></i><i style="height:28%"></i>
-              <i style="height:66%"></i>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="status">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Статус разработки</div>
+          <h2>Где сейчас проект</h2>
+          <p>Приложение уже работает, но мы не считаем его готовым к публичному релизу. Вот что сделано и что впереди.</p>
+        </div>
+
+        <div class="grid cols-3">
+          <article class="card">
+            <span class="chip done">Готово</span>
+            <h3 style="margin-top:var(--s-3)">Основные функции</h3>
+            <ul>
+              <li>Озвучка текста через Fish Audio</li>
+              <li>Саундпад с горячими клавишами</li>
+              <li>Фразы, история, проверка сигнала</li>
+              <li>Новый интерфейс с боковым меню</li>
+            </ul>
+          </article>
+          <article class="card">
+            <span class="chip wip">В работе</span>
+            <h3 style="margin-top:var(--s-3)">До стабильного релиза</h3>
+            <ul>
+              <li>Установка и обновление без сюрпризов</li>
+              <li>Надёжность работы с аудиоустройствами</li>
+              <li>Подсказки при первом запуске</li>
+              <li>Исправление найденных в бете ошибок</li>
+            </ul>
+          </article>
+          <article class="card">
+            <span class="chip next">Дальше</span>
+            <h3 style="margin-top:var(--s-3)">Публичный выпуск</h3>
+            <ul>
+              <li>Открытая страница скачивания</li>
+              <li>Инструкция по настройке за пару минут</li>
+              <li>Список изменений по версиям</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="features">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Возможности</div>
+          <h2>Всё для голоса и звука — в одном окне</h2>
+          <p>Не нужно переключать игру, настраивать OBS и разбираться в аудио-маршрутизации. VoicePad делает это за вас.</p>
+        </div>
+
+        <div class="grid cols-3">
+          <article class="card hover">
+            <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></div>
+            <h3>Озвучка текста</h3>
+            <p>Введите текст, выберите голос — Fish Audio синтезирует речь и сразу проиграет её.</p>
+          </article>
+
+          <article class="card hover">
+            <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 16 0"/><rect x="2" y="12" width="4" height="7" rx="2"/><rect x="18" y="12" width="4" height="7" rx="2"/></svg></div>
+            <h3>Виртуальный микрофон</h3>
+            <p>Звук уходит в CABLE Input, а игра получает его как обычный микрофон.</p>
+          </article>
+
+          <article class="card hover">
+            <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div>
+            <h3>Саундпад</h3>
+            <p>Добавляйте wav, mp3, ogg и flac, назначайте горячие клавиши и играйте в один клик.</p>
+          </article>
+
+          <article class="card hover">
+            <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8M8 12h5"/></svg></div>
+            <h3>Фразы в один клик</h3>
+            <p>Частые фразы озвучиваются один раз, дальше играют мгновенно из файла — без трат.</p>
+          </article>
+
+          <article class="card hover">
+            <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h5l3-6h8"/><path d="M17 3l3 3-3 3"/><path d="M4 18h5l2-4"/></svg></div>
+            <h3>Пропуск микрофона</h3>
+            <p>Ваш реальный голос можно смешивать со звуками в одном виртуальном микрофоне.</p>
+          </article>
+
+          <article class="card hover">
+            <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+            <h3>История и проверка</h3>
+            <p>Последние 50 озвучек сохраняются, а три теста покажут, слышит ли вас игра.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Как это работает</div>
+          <h2>Три шага до первого звука</h2>
+          <p>Так будет выглядеть настройка после публичного релиза. Виртуальный микрофон программа поставит сама.</p>
+        </div>
+
+        <div class="grid cols-3">
+          <article class="card step">
+            <div class="num">1</div>
+            <h3>Подключите микрофон</h3>
+            <p>Если VB-CABLE ещё нет, программа предложит установить его одной кнопкой. Windows попросит подтвердить установку драйвера.</p>
+          </article>
+          <article class="card step">
+            <div class="num">2</div>
+            <h3>Вставьте API-ключ</h3>
+            <p>Создайте бесплатный ключ на Fish Audio и вставьте его в «Настройках». По умолчанию используется бесплатная модель.</p>
+          </article>
+          <article class="card step">
+            <div class="num">3</div>
+            <h3>Выберите CABLE Output</h3>
+            <p>В настройках игры или Discord выберите микрофон <b>CABLE Output</b> — и озвучка станет слышна собеседникам.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="requirements">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Требования</div>
+          <h2>Что понадобится</h2>
+          <p>Ничего сверх обычного Windows-ПК. Синтез речи выполняется в облаке Fish Audio.</p>
+        </div>
+
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Минимальные требования</h3>
+            <ul class="checks" style="margin-top:var(--s-4)">
+              <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Windows 10 или 11</b>, 64-битная версия</span></li>
+              <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Около 30 МБ</b> на диске для программы</span></li>
+              <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Интернет</b> для синтеза речи через Fish Audio</span></li>
+              <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Ключ Fish Audio</b> — подойдёт бесплатная модель</span></li>
+              <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>VB-CABLE</b> — бесплатный драйвер, ставится из программы</span></li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3>Хорошо знать</h3>
+            <div class="tip" style="margin-top:var(--s-4)">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>
+              <div><b>Без виртуального микрофона</b> VoicePad тоже работает: звук пойдёт в наушники или динамики. Но чтобы его услышали в игре или Discord, нужен CABLE Output.</div>
+            </div>
+            <div class="tip">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 11-13h-7z"/></svg>
+              <div><b>Мощный ПК не нужен.</b> Обработка речи идёт на серверах Fish Audio, а программа только отправляет текст и проигрывает готовый wav.</div>
+            </div>
+            <div class="tip">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg>
+              <div><b>Приватность.</b> API-ключ и настройки хранятся только на вашем компьютере в папке <code>%USERPROFILE%\.voicepad</code>.</div>
             </div>
           </div>
-          <div class="mock-card">
-            <div class="mock-line w60"></div>
-            <div class="mock-line w90"></div>
-          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="section" id="status">
-    <div class="section-head">
-      <div class="eyebrow">Статус разработки</div>
-      <h2>Где сейчас проект</h2>
-      <p>Приложение уже работает, но мы не считаем его готовым к публичному релизу. Вот что сделано и что впереди.</p>
-    </div>
-
-    <div class="status-grid">
-      <article class="status-card">
-        <span class="chip done">Готово</span>
-        <h3>Основные функции</h3>
-        <ul>
-          <li>Озвучка текста через Fish Audio</li>
-          <li>Саундпад с горячими клавишами</li>
-          <li>Фразы, история, проверка сигнала</li>
-          <li>Новый интерфейс с боковым меню</li>
-        </ul>
-      </article>
-      <article class="status-card">
-        <span class="chip wip">В работе</span>
-        <h3>До стабильного релиза</h3>
-        <ul>
-          <li>Установка и обновление без сюрпризов</li>
-          <li>Надёжность работы с аудиоустройствами</li>
-          <li>Подсказки при первом запуске</li>
-          <li>Исправление найденных в бете ошибок</li>
-        </ul>
-      </article>
-      <article class="status-card">
-        <span class="chip next">Дальше</span>
-        <h3>Публичный выпуск</h3>
-        <ul>
-          <li>Открытая страница скачивания</li>
-          <li>Инструкция по настройке за пару минут</li>
-          <li>Список изменений по версиям</li>
-        </ul>
-      </article>
-    </div>
-  </section>
-
-  <section class="section" id="features">
-    <div class="section-head">
-      <div class="eyebrow">Возможности</div>
-      <h2>Всё для голоса и звука — в одном окне</h2>
-      <p>Не нужно переключать игру, настраивать OBS и разбираться в аудио-маршрутизации. VoicePad делает это за вас.</p>
-    </div>
-
-    <div class="grid">
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></div>
-        <h3>Озвучка текста</h3>
-        <p>Введите текст, выберите голос — Fish Audio синтезирует речь и сразу проиграет её.</p>
-      </article>
-
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 16 0"/><rect x="2" y="12" width="4" height="7" rx="2"/><rect x="18" y="12" width="4" height="7" rx="2"/></svg></div>
-        <h3>Виртуальный микрофон</h3>
-        <p>Звук уходит в CABLE Input, а игра получает его как обычный микрофон.</p>
-      </article>
-
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></div>
-        <h3>Саундпад</h3>
-        <p>Добавляйте wav, mp3, ogg и flac, назначайте горячие клавиши и играйте в один клик.</p>
-      </article>
-
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8M8 12h5"/></svg></div>
-        <h3>Фразы в один клик</h3>
-        <p>Частые фразы озвучиваются один раз, дальше играют мгновенно из файла — без трат.</p>
-      </article>
-
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></div>
-        <h3>Горячие клавиши</h3>
-        <p>Запускайте звуки и фразы, не переключаясь в окно программы и не сворачивая игру.</p>
-      </article>
-
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h5l3-6h8"/><path d="M17 3l3 3-3 3"/><path d="M4 18h5l2-4"/></svg></div>
-        <h3>Пропуск микрофона</h3>
-        <p>Ваш реальный голос можно смешивать со звуками в одном виртуальном микрофоне.</p>
-      </article>
-
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
-        <h3>История</h3>
-        <p>Последние 50 озвучек: прослушать снова, сохранить в фразы или вернуть в редактор.</p>
-      </article>
-
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg></div>
-        <h3>Проверка соединения</h3>
-        <p>Три теста покажут, доходит ли звук до игры и слышит ли вас микрофон.</p>
-      </article>
-    </div>
-  </section>
-
-  <section class="section" id="how">
-    <div class="section-head">
-      <div class="eyebrow">Как это работает</div>
-      <h2>Три шага до первого звука</h2>
-      <p>Так будет выглядеть настройка после публичного релиза. Ничего сложного — виртуальный микрофон программа поставит сама.</p>
-    </div>
-
-    <div class="steps">
-      <article class="step">
-        <div class="num">1</div>
-        <h3>Подключите микрофон</h3>
-        <p>Если VB-CABLE ещё нет, программа предложит установить его одной кнопкой. Windows попросит подтвердить установку драйвера.</p>
-      </article>
-      <article class="step">
-        <div class="num">2</div>
-        <h3>Вставьте API-ключ</h3>
-        <p>Создайте бесплатный ключ на Fish Audio и вставьте его во вкладке «Настройки». По умолчанию используется бесплатная модель.</p>
-      </article>
-      <article class="step">
-        <div class="num">3</div>
-        <h3>Выберите CABLE Output</h3>
-        <p>В настройках игры или Discord выберите микрофон <b>CABLE Output</b> — и озвучка станет слышна собеседникам.</p>
-      </article>
-    </div>
-  </section>
-
-  <section class="section" id="requirements">
-    <div class="section-head">
-      <div class="eyebrow">Требования</div>
-      <h2>Что понадобится</h2>
-      <p>Ничего сверх обычного Windows-ПК. Синтез речи выполняется в облаке Fish Audio.</p>
-    </div>
-
-    <div class="split">
-      <div class="panel">
-        <h3>Минимальные требования</h3>
-        <ul class="checks">
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Windows 10 или 11</b>, 64-битная версия</span></li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Около 30 МБ</b> на диске для программы</span></li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Интернет</b> для синтеза речи через Fish Audio</span></li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>Ключ Fish Audio</b> — подойдёт бесплатная модель</span></li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg><span><b>VB-CABLE</b> — бесплатный драйвер, ставится из программы</span></li>
-        </ul>
-      </div>
-
-      <div class="panel">
-        <h3>Хорошо знать</h3>
-        <div class="tip">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>
-          <div>
-            <b>Без виртуального микрофона</b> VoicePad тоже работает: звук пойдёт в наушники или динамики.
-            Но чтобы его услышали в игре или Discord, нужен CABLE Output.
-          </div>
+    <section class="section" id="privacy">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Приватность</div>
+          <h2>Ваши данные — только у вас</h2>
+          <p>VoicePad не собирает статистику, не показывает рекламу и не отправляет данные третьим лицам.</p>
         </div>
-        <div class="tip" style="margin-top:10px">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 11-13h-7z"/></svg>
-          <div>
-            <b>Мощный ПК не нужен.</b> Обработка речи идёт на серверах Fish Audio,
-            а программа только отправляет текст и проигрывает готовый wav.
-          </div>
-        </div>
-        <div class="tip" style="margin-top:10px">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg>
-          <div>
-            <b>Приватность.</b> API-ключ и настройки хранятся только на вашем компьютере
-            в папке <code>%USERPROFILE%\.voicepad</code>.
-          </div>
+
+        <div class="grid cols-3">
+          <article class="card">
+            <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg></div>
+            <h3>Ключ остаётся локально</h3>
+            <p>API-ключ хранится в файле настроек на компьютере и уходит только на Fish Audio.</p>
+          </article>
+          <article class="card">
+            <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v12H8l-4 4z"/><path d="M8 9h8M8 12h5"/></svg></div>
+            <h3>Озвучка на диске</h3>
+            <p>Готовые wav-файлы лежат в папке программы и удаляются вместе с фразами.</p>
+          </article>
+          <article class="card">
+            <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6l-5 6 5 6"/><path d="M16 6l5 6-5 6"/></svg></div>
+            <h3>Открытый код</h3>
+            <p>Исходники и история версий доступны на GitHub — можно проверить, что внутри.</p>
+          </article>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="section" id="privacy">
-    <div class="section-head">
-      <div class="eyebrow">Приватность</div>
-      <h2>Ваши данные — только у вас</h2>
-      <p>VoicePad не собирает статистику, не показывает рекламу и не отправляет данные третьим лицам.</p>
-    </div>
-
-    <div class="grid" style="grid-template-columns:repeat(3,1fr)">
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg></div>
-        <h3>Ключ остаётся локально</h3>
-        <p>API-ключ хранится в файле настроек на компьютере и уходит только на Fish Audio.</p>
-      </article>
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v12H8l-4 4z"/><path d="M8 9h8M8 12h5"/></svg></div>
-        <h3>Озвучка на диске</h3>
-        <p>Готовые wav-файлы лежат в папке программы и удаляются вместе с фразами.</p>
-      </article>
-      <article class="feature">
-        <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6l-5 6 5 6"/><path d="M16 6l5 6-5 6"/></svg></div>
-        <h3>Открытый код</h3>
-        <p>Исходники и история версий доступны на GitHub — можно проверить, что внутри.</p>
-      </article>
-    </div>
-  </section>
-
-  <section class="section" id="faq">
-    <div class="section-head">
-      <div class="eyebrow">Вопросы</div>
-      <h2>Частые вопросы</h2>
-      <p>Если ответа нет — спросите в <a href="https://github.com/v1sor781/voicepad/issues" rel="noopener">обсуждениях на GitHub</a>.</p>
-    </div>
-
-    <div class="faq">
-      <details open>
-        <summary>Когда появится публичная версия?</summary>
-        <div class="answer">
-          <p>Точной даты пока нет. Приложение проходит закрытое тестирование: сначала нужно убедиться, что установка, обновление и работа с виртуальным микрофоном ведут себя предсказуемо на разных компьютерах.</p>
-          <p>О выходе сообщим в репозитории на GitHub — там же будут ссылки на скачивание.</p>
+    <section class="section" id="faq">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Вопросы</div>
+          <h2>Частые вопросы</h2>
+          <p>Если ответа нет — спросите в <a href="https://github.com/v1sor781/voicepad/issues" rel="noopener">обсуждениях на GitHub</a>.</p>
         </div>
-      </details>
 
-      <details>
-        <summary>Можно ли попробовать прямо сейчас?</summary>
-        <div class="answer">
-          <p>Публичных сборок нет: мы не хотим, чтобы люди ставили сырую версию и сталкивались с недоделками.</p>
-          <p>Исходный код открыт, поэтому при желании приложение можно собрать самостоятельно — но это вариант для опытных пользователей, без поддержки и гарантий.</p>
+        <div class="faq">
+          <details open>
+            <summary>Когда появится публичная версия?</summary>
+            <div class="answer">
+              <p>Точной даты пока нет. Приложение проходит закрытое тестирование: сначала нужно убедиться, что установка, обновление и работа с виртуальным микрофоном ведут себя предсказуемо на разных компьютерах.</p>
+              <p>О выходе сообщим в репозитории на GitHub — там же будут ссылки на скачивание.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Можно ли попробовать прямо сейчас?</summary>
+            <div class="answer">
+              <p>Публичных сборок нет: мы не хотим, чтобы люди ставили сырую версию и сталкивались с недоделками.</p>
+              <p>Исходный код открыт, поэтому при желании приложение можно собрать самостоятельно — но это вариант для опытных пользователей, без поддержки и гарантий.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Сколько будет стоить программа?</summary>
+            <div class="answer">
+              <p>Планируется, что VoicePad будет бесплатным. Синтез речи выполняет Fish Audio: у сервиса есть бесплатный ключ и бесплатная модель <code>s2.1-pro-free</code>, которую программа использует по умолчанию.</p>
+              <p>Если понадобится больше голосов или скорости, в Fish Audio можно подключить платный тариф.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Зачем нужен виртуальный микрофон?</summary>
+            <div class="answer">
+              <p>Windows не даёт программе говорить в настоящий микрофон напрямую. Виртуальный драйвер VB-CABLE создаёт пару устройств: в CABLE Input программа отправляет звук, а игра видит его как микрофон CABLE Output.</p>
+              <p>Драйвер бесплатный, устанавливается из самой программы.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Будет ли работать в любой игре и Discord?</summary>
+            <div class="answer">
+              <p>Да. Для игры или Discord виртуальный микрофон выглядит как обычное устройство записи. Достаточно выбрать <b>CABLE Output</b> в настройках звука приложения.</p>
+              <p>Аналогично — с OBS, TeamSpeak, Zoom и другими программами, где можно выбрать микрофон.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Куда сохраняются ключ, настройки и озвучка?</summary>
+            <div class="answer">
+              <p>Всё лежит в папке <code>%USERPROFILE%\.voicepad</code>: настройки — в <code>config.json</code>, готовые wav-файлы — в подпапке <code>tts</code>.</p>
+              <p>Ключ API никуда не отправляется, кроме Fish Audio. Рекламы, телеметрии и сторонней аналитики в программе нет.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Есть ли версия для macOS или Linux?</summary>
+            <div class="answer">
+              <p>Нет и не планируется. Виртуальный микрофон и захват горячих клавиш завязаны на Windows-драйверы и API.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Как помочь проекту?</summary>
+            <div class="answer">
+              <p>Проще всего — поставить звёздочку на <a href="https://github.com/v1sor781/voicepad" rel="noopener">GitHub</a>: так видно, что проект нужен.</p>
+              <p>Ещё можно рассказать об идее друзьям, предложить улучшение или сообщить об ошибке в <a href="https://github.com/v1sor781/voicepad/issues" rel="noopener">Issues</a>.</p>
+            </div>
+          </details>
         </div>
-      </details>
-
-      <details>
-        <summary>Сколько будет стоить программа?</summary>
-        <div class="answer">
-          <p>Планируется, что VoicePad будет бесплатным. Синтез речи выполняет Fish Audio: у сервиса есть бесплатный ключ и бесплатная модель <code>s2.1-pro-free</code>, которую программа использует по умолчанию.</p>
-          <p>Если понадобится больше голосов или скорости, в Fish Audio можно подключить платный тариф.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Зачем нужен виртуальный микрофон?</summary>
-        <div class="answer">
-          <p>Windows не даёт программе говорить в настоящий микрофон напрямую. Виртуальный драйвер VB-CABLE создаёт пару устройств: в CABLE Input программа отправляет звук, а игра видит его как микрофон CABLE Output.</p>
-          <p>Драйвер бесплатный, устанавливается из самой программы.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Будет ли работать в любой игре и Discord?</summary>
-        <div class="answer">
-          <p>Да. Для игры или Discord виртуальный микрофон выглядит как обычное устройство записи. Достаточно выбрать <b>CABLE Output</b> в настройках звука приложения.</p>
-          <p>Аналогично — с OBS, TeamSpeak, Zoom и другими программами, где можно выбрать микрофон.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Нужен ли мощный компьютер?</summary>
-        <div class="answer">
-          <p>Нет. Речь синтезируется на серверах Fish Audio, программа только отправляет текст и проигрывает готовый файл. Достаточно обычного ПК на Windows 10 или 11.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Куда сохраняются ключ, настройки и озвучка?</summary>
-        <div class="answer">
-          <p>Всё лежит в папке <code>%USERPROFILE%\.voicepad</code>: настройки — в <code>config.json</code>, готовые wav-файлы — в подпапке <code>tts</code>.</p>
-          <p>Ключ API никуда не отправляется, кроме Fish Audio. Рекламы, телеметрии и сторонней аналитики в программе нет.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Есть ли версия для macOS или Linux?</summary>
-        <div class="answer">
-          <p>Нет и не планируется. Виртуальный микрофон и захват горячих клавиш завязаны на Windows-драйверы и API.</p>
-        </div>
-      </details>
-
-      <details>
-        <summary>Как помочь проекту?</summary>
-        <div class="answer">
-          <p>Проще всего — поставить звёздочку на <a href="https://github.com/v1sor781/voicepad" rel="noopener">GitHub</a>: так видно, что проект нужен.</p>
-          <p>Ещё можно рассказать об идее друзьям, предложить улучшение или сообщить об ошибке в <a href="https://github.com/v1sor781/voicepad/issues" rel="noopener">Issues</a>.</p>
-        </div>
-      </details>
-    </div>
-  </section>
-
-  <section class="cta">
-    <div class="cta-inner">
-      <div>
-        <h2>Следите за проектом</h2>
-        <p>Разработка открытая: изменения, идеи и дата публичного релиза — в репозитории на GitHub.</p>
       </div>
-      <div class="actions">
-        <a class="btn primary" href="https://github.com/v1sor781/voicepad" rel="noopener">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.42c.58.1.79-.25.79-.55v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.14v3.17c0 .3.21.66.8.55A11.5 11.5 0 0 0 12 .5z"/></svg>
-          Открыть GitHub
-        </a>
-        <a class="btn ghost" href="https://github.com/v1sor781/voicepad/issues" rel="noopener">Идеи и ошибки</a>
+    </section>
+
+    <section class="cta">
+      <div class="wrap cta-inner">
+        <div>
+          <h2>Следите за проектом</h2>
+          <p>Разработка открытая: изменения, идеи и дата публичного релиза — в репозитории на GitHub.</p>
+        </div>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/v1sor781/voicepad" rel="noopener">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.42c.58.1.79-.25.79-.55v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.25 5.69.41.36.78 1.06.78 2.14v3.17c0 .3.21.66.8.55A11.5 11.5 0 0 0 12 .5z"/></svg>
+            Открыть GitHub
+          </a>
+          <a class="btn ghost" href="https://github.com/v1sor781/voicepad/issues" rel="noopener">Идеи и ошибки</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <div>© 2026 VoicePad · проект в разработке. Для Windows 10/11.</div>
+      <div class="foot-links">
+        <a href="https://github.com/v1sor781/voicepad" rel="noopener">GitHub</a>
+        <a href="https://github.com/v1sor781/voicepad/issues" rel="noopener">Issues</a>
+        <a href="https://fish.audio" rel="noopener">Fish Audio</a>
+        <a href="https://vb-audio.com/Cable/" rel="noopener">VB-CABLE</a>
       </div>
     </div>
-  </section>
-</main>
+  </footer>
+</div>
 
-<footer>
-  <div class="foot">
-    <div>© 2026 VoicePad · проект в разработке. Для Windows 10/11.</div>
-    <div class="foot-links">
-      <a href="https://github.com/v1sor781/voicepad" rel="noopener">GitHub</a>
-      <a href="https://github.com/v1sor781/voicepad/issues" rel="noopener">Issues</a>
-      <a href="https://fish.audio" rel="noopener">Fish Audio</a>
-      <a href="https://vb-audio.com/Cable/" rel="noopener">VB-CABLE</a>
-    </div>
-  </div>
-</footer>
+<script>
+(function () {
+  'use strict';
+  var canvas = document.getElementById('fall');
+  if (!canvas) { return; }
+  var ctx = canvas.getContext('2d');
+  if (!ctx) { return; }
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var dark = window.matchMedia('(prefers-color-scheme: dark)');
+  var w = 0, h = 0, dpr = 1, raf = 0, last = 0;
+  var palette = [];
+  var items = [];
+  var COUNT = 26;
+
+  function rand(min, max) { return min + Math.random() * (max - min); }
+
+  function readPalette() {
+    var css = getComputedStyle(document.documentElement);
+    palette = [
+      css.getPropertyValue('--fall-1').trim() || '#5b8cff',
+      css.getPropertyValue('--fall-2').trim() || '#8f6bff',
+      css.getPropertyValue('--fall-3').trim() || '#42c98a'
+    ];
+  }
+
+  function spawn(initial) {
+    var size = rand(10, 46);
+    return {
+      x: Math.random(),
+      y: initial ? Math.random() : -0.15,
+      size: size,
+      speed: rand(9, 26) / 1000,     // доля высоты экрана в секунду
+      rot: rand(0, Math.PI * 2),
+      spin: rand(-0.35, 0.35),
+      sway: rand(0, Math.PI * 2),
+      swaySpeed: rand(0.25, 0.7),
+      color: Math.floor(Math.random() * palette.length),
+      alpha: rand(0.06, 0.16),
+      round: Math.random() < 0.42,
+      tall: Math.random() < 0.4 ? rand(1.4, 2.6) : 1
+    };
+  }
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = window.innerWidth;
+    h = window.innerHeight;
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    readPalette();
+    if (!items.length) {
+      for (var i = 0; i < COUNT; i++) { items.push(spawn(true)); }
+    }
+    if (reduce.matches) { draw(); }
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, w, h);
+    for (var i = 0; i < items.length; i++) {
+      var p = items[i];
+      var x = p.x * w + Math.sin(p.sway) * 22;
+      var y = p.y * h;
+      var sw = p.size;
+      var sh = p.size * p.tall;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(p.rot);
+      ctx.globalAlpha = p.alpha;
+      ctx.fillStyle = palette[p.color];
+      if (p.round) {
+        ctx.beginPath();
+        ctx.arc(0, 0, sw / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        var r = Math.min(8, sw / 4);
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(-sw / 2, -sh / 2, sw, sh, r);
+        } else {
+          ctx.rect(-sw / 2, -sh / 2, sw, sh);
+        }
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  function tick(now) {
+    if (!last) { last = now; }
+    var dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    for (var i = 0; i < items.length; i++) {
+      var p = items[i];
+      p.y += p.speed * dt;
+      p.rot += p.spin * dt;
+      p.sway += p.swaySpeed * dt;
+      if (p.y * h > h + 80) {
+        items[i] = spawn(false);
+        items[i].color = p.color;
+      }
+    }
+    draw();
+    raf = window.requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (reduce.matches) { draw(); return; }
+    if (!raf) { last = 0; raf = window.requestAnimationFrame(tick); }
+  }
+
+  function stop() {
+    if (raf) { window.cancelAnimationFrame(raf); raf = 0; }
+  }
+
+  var resizeTimer = 0;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(resize, 150);
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { stop(); } else { start(); }
+  });
+  if (reduce.addEventListener) {
+    reduce.addEventListener('change', function () { if (reduce.matches) { stop(); draw(); } else { start(); } });
+  }
+  if (dark.addEventListener) {
+    dark.addEventListener('change', function () { readPalette(); if (reduce.matches) { draw(); } });
+  }
+
+  resize();
+  start();
+}());
+</script>
 </body>
 </html>
