@@ -38,7 +38,7 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 NONE = "— нет —"
 HISTORY_MAX = 50
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 DEFAULT_MODEL = "s2.1-pro-free"  # бесплатная модель Fish Audio API; платная: "s2-pro"
 
 # ---- палитра интерфейса (совпадает со страницей скачивания)
@@ -164,6 +164,32 @@ def resolve_device(value, kind):
         if low in name.strip().lower():
             return idx
     return None
+
+
+def same_name_devices(idx, kind):
+    """Все индексы устройств с тем же именем (разные host-API), WASAPI первым."""
+    try:
+        base = sd.query_devices(idx).get("name", "").strip().lower()
+        if not base:
+            return [idx]
+    except Exception:
+        return [idx]
+    result = []
+    try:
+        for i, d in enumerate(sd.query_devices()):
+            if d.get(f"max_{kind}_channels", 0) > 0 and d.get("name", "").strip().lower() == base:
+                result.append(i)
+    except Exception:
+        return [idx]
+    if idx not in result:
+        result.insert(0, idx)
+    try:
+        wasapi = next((n for n, h in enumerate(sd.query_hostapis()) if h["name"] == "Windows WASAPI"), None)
+        if wasapi is not None:
+            result.sort(key=lambda i: 0 if sd.query_devices(i).get("hostapi") == wasapi else 1)
+    except Exception:
+        pass
+    return result or [idx]
 
 
 def open_output_stream(dev, sr, channels):
@@ -515,10 +541,11 @@ def record_peak(dev, seconds, on_level):
         short = msg.split(": ", 1)[0] + ": " + (reason[:120] + "…" if len(reason) > 120 else reason)
         if short not in unique:
             unique.append(short)
-        if len(unique) >= 5:
+        if len(unique) >= 6:
             break
     if not unique:
         unique = ["неизвестная причина"]
+    tried = f" (пробовано вариантов: {len(errors)}, частоты: {', '.join(str(r) for r in rates)} Гц)" if errors else ""
     dev_info = ""
     try:
         di = sd.query_devices(dev)
@@ -532,7 +559,7 @@ def record_peak(dev, seconds, on_level):
                     f"частота по умолчанию {int(di.get('default_samplerate') or 0)} Гц.")
     except Exception:
         pass
-    raise RuntimeError("устройство записи не открылось (" + "; ".join(unique) + ")." + dev_info)
+    raise RuntimeError("устройство записи не открылось (" + "; ".join(unique) + ")" + tried + "." + dev_info)
 
 
 def make_tone(sr=44100, seconds=1.2, freq=440.0, amp=0.35):
@@ -1096,16 +1123,22 @@ class App(ctk.CTk):
         paused = bool(self.cfg["passthrough"]) and self.engine.pt is not None
         if paused:
             self.engine.stop_passthrough()
+        last_err = None
         try:
-            peak = record_peak(dev, 6.0, on_level)
+            for candidate in same_name_devices(dev, "input"):
+                try:
+                    peak = record_peak(candidate, 6.0, on_level)
+                    silent = ("Микрофон молчит. Проверьте, что в «Настройки» выбран нужный микрофон, он включён "
+                              "в Windows (Параметры → Система → Звук → Ввод) и разрешён для приложений "
+                              "(Параметры → Конфиденциальность → Микрофон)")
+                    return verdict(peak, "Микрофон слышно", silent,
+                                   "Микрофон слышно, но очень тихо. Увеличьте его громкость в параметрах Windows")
+                except Exception as e:
+                    last_err = e
         finally:
             if paused:
                 self.engine.restart_passthrough()
-        silent = ("Микрофон молчит. Проверьте, что в «Настройки» выбран нужный микрофон, он включён "
-                  "в Windows (Параметры → Система → Звук → Ввод) и разрешён для приложений "
-                  "(Параметры → Конфиденциальность → Микрофон)")
-        return verdict(peak, "Микрофон слышно", silent,
-                       "Микрофон слышно, но очень тихо. Увеличьте его громкость в параметрах Windows")
+        raise last_err or RuntimeError("не удалось открыть микрофон")
 
     def _build_check(self, tab):
         body = ctk.CTkScrollableFrame(tab, fg_color="transparent", corner_radius=0,
