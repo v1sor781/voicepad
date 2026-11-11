@@ -38,7 +38,7 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 NONE = "— нет —"
 HISTORY_MAX = 50
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 DEFAULT_MODEL = "s2.1-pro-free"  # бесплатная модель Fish Audio API; платная: "s2-pro"
 
 # ---- палитра интерфейса (совпадает со страницей скачивания)
@@ -389,6 +389,26 @@ def divider(parent, pady=(S4, S4)):
 SILENT_LEVEL = 0.003   # ниже: полная тишина (около -50 дБ)
 OK_LEVEL = 0.02        # выше: сигнал слышно нормально (около -34 дБ)
 
+PA_HINTS = {
+    -9999: "устройство занято другой программой или недоступно",
+    -9998: "устройство не поддерживает нужное число каналов",
+    -9997: "устройство не поддерживает такую частоту дискретизации",
+    -9996: "устройства нет в системе — возможно, оно отключилось",
+    -9993: "устройство не поддерживает такой формат",
+    -9992: "не удалось запустить поток: проверьте, что устройство не занято",
+}
+
+
+def audio_error_text(exc):
+    """Текст ошибки звука: сообщение драйвера плюс понятная подсказка по коду PortAudio."""
+    text = str(exc).strip() or exc.__class__.__name__
+    match = re.search(r"PaErrorCode\s*(-?\d+)", text)
+    hint = PA_HINTS.get(int(match.group(1))) if match else None
+    if not hint and "busy" in text.lower():
+        hint = "устройство занято другой программой"
+    return text + (f" — {hint}" if hint else "")
+
+
 
 def find_input(substr):
     """Индекс устройства записи, в названии которого есть substr (например, 'cable output')."""
@@ -400,13 +420,14 @@ def find_input(substr):
 
 def record_peak(dev, seconds, on_level):
     """Слушает устройство записи и возвращает максимальный уровень 0..1.
-    on_level(v) вызывается для каждого блока (для индикатора уровня)."""
+    on_level(v) вызывается для каждого блока (для индикатора уровня).
+    Если драйвер не берёт текущий формат, пробуем другие каналы и частоты."""
     try:
         info = sd.query_devices(dev)
     except Exception:
         info = {}
-    sr = int(info.get("default_samplerate") or 48000)
-    ch = max(1, min(int(info.get("max_input_channels") or 1), 2))
+    default_sr = int(info.get("default_samplerate") or 48000)
+    max_ch = int(info.get("max_input_channels") or 1)
     peak = [0.0]
 
     def cb(indata, frames, t, status):
@@ -416,16 +437,31 @@ def record_peak(dev, seconds, on_level):
         peak[0] = max(peak[0], lvl)
         on_level(lvl)
 
-    def open_stream():
-        try:
-            return sd.InputStream(device=dev, channels=ch, samplerate=sr, dtype="float32",
-                                  extra_settings=sd.WasapiSettings(auto_convert=True), callback=cb)
-        except Exception:
-            return sd.InputStream(device=dev, channels=ch, samplerate=sr, dtype="float32", callback=cb)
+    rates = []
+    for rate in (default_sr, 48000, 44100):
+        if rate and rate not in rates:
+            rates.append(rate)
+    channels = []
+    for ch in (min(max_ch, 2), 1):
+        if ch >= 1 and ch not in channels:
+            channels.append(ch)
 
-    with open_stream():
-        time.sleep(seconds)
-    return peak[0]
+    errors = []
+    for ch in channels:
+        for rate in rates:
+            for wasapi in (True, False):
+                try:
+                    extra = sd.WasapiSettings(auto_convert=True) if wasapi else None
+                    stream = sd.InputStream(device=dev, channels=ch, samplerate=rate,
+                                            dtype="float32", extra_settings=extra, callback=cb)
+                    with stream:
+                        time.sleep(seconds)
+                    return peak[0]
+                except Exception as e:
+                    errors.append(f"{ch} кан., {rate} Гц: {audio_error_text(e)}")
+                    if peak[0] > 0:
+                        return peak[0]      # сигнал уже шёл, ошибка не критична
+    raise RuntimeError("устройство записи не открылось (" + "; ".join(errors[:2]) + ")")
 
 
 def make_tone(sr=44100, seconds=1.2, freq=440.0, amp=0.35):
@@ -526,7 +562,8 @@ class Player:
                         return
                     last = e
         name = info.get("name") or "устройство вывода"
-        self.report(f"Не удалось вывести звук в «{name}»: {last}. "
+        reason = audio_error_text(last) if last is not None else "неизвестная причина"
+        self.report(f"Не удалось вывести звук в «{name}»: {reason}. "
                     "Выберите другое устройство в «Настройки».")
 
     def stop_passthrough(self):
@@ -863,6 +900,34 @@ class App(ctk.CTk):
             return None
         self.bind_all("<Control-KeyPress>", handler)
 
+    def log_error(self, exc):
+        """Дописывает ошибку в error.log: текст можно потом показать или переслать."""
+        try:
+            with open(APP_DIR / "error.log", "a", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S") + "\n"
+                        + "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)) + "\n")
+        except OSError:
+            pass
+
+    def copy_text(self, text, what="Текст"):
+        """Кладёт текст в буфер обмена — ошибки и результаты можно вставить в чат."""
+        text = (text or "").strip()
+        if not text:
+            self.report("Копировать пока нечего")
+            return
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.report(f"{what} скопирован в буфер обмена")
+        except Exception as e:
+            self.report(f"Не удалось скопировать: {e}")
+
+    def copy_status(self):
+        self.copy_text(self.status.cget("text"), "Текст строки состояния")
+
+    def copy_test_result(self):
+        self.copy_text(self.test_result.cget("text"), "Результат проверки")
+
     def report_callback_exception(self, exc, val, tb):
         """Ошибки в обработчиках кнопок: пишем в лог и в строку статуса, а не молча теряем."""
         self.callback_errors.append("".join(traceback.format_exception(exc, val, tb)))
@@ -944,7 +1009,15 @@ class App(ctk.CTk):
             dev = default_device("input")
         if dev is None:
             return False, "Микрофон не найден. Выберите его в «Настройки» или подключите."
-        peak = record_peak(dev, 6.0, on_level)
+        # пропуск микрофона держит это же устройство открытым — на время проверки отпускаем его
+        paused = bool(self.cfg["passthrough"]) and self.engine.pt is not None
+        if paused:
+            self.engine.stop_passthrough()
+        try:
+            peak = record_peak(dev, 6.0, on_level)
+        finally:
+            if paused:
+                self.engine.restart_passthrough()
         silent = ("Микрофон молчит. Проверьте, что в «Настройки» выбран нужный микрофон, он включён "
                   "в Windows (Параметры → Система → Звук → Ввод) и разрешён для приложений "
                   "(Параметры → Конфиденциальность → Микрофон)")
@@ -970,6 +1043,10 @@ class App(ctk.CTk):
         self.test_result = note_label(m, wraplength=700, text="Результат появится здесь.",
                                       text_color=MUTED, font=self.f_small)
         self.test_result.pack(fill="x")
+        row = ctk.CTkFrame(m, fg_color="transparent")
+        row.pack(fill="x", pady=(S2, 0))
+        self._btn(row, "Копировать результат", self.copy_test_result, height=30, width=168
+                  ).pack(side="right")
 
         tests = (
             ("virtual", "Тест сигнала", "Проиграет короткий писк через виртуальный микрофон и проверит, "
@@ -1006,7 +1083,8 @@ class App(ctk.CTk):
             func = {"virtual": self.check_virtual_mic, "game": self.check_game_hears, "mic": self.check_real_mic}[kind]
             ok, msg = func(on_level)
         except Exception as e:
-            ok, msg = False, f"Не удалось выполнить проверку: {e}"
+            ok, msg = False, "Не удалось выполнить проверку: " + audio_error_text(e)
+            self.log_error(e)
         self.meter["running"] = False
         self.after(0, lambda: self.show_test_result(ok, msg))
 
@@ -1115,8 +1193,11 @@ class App(ctk.CTk):
         self.status = ctk.CTkLabel(status_bar, text="Готово", anchor="w",
                                    text_color=MUTED, font=self.f_small)
         self.status.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(status_bar, text="Копировать", width=100, height=24, corner_radius=R1,
+                      fg_color="transparent", hover_color=CARD_HOVER, text_color=MUTED,
+                      font=self.f_tiny, command=self.copy_status).pack(side="right", padx=(0, S2))
         ctk.CTkLabel(status_bar, text="Ctrl+Enter — озвучить", text_color=MUTED,
-                     font=self.f_tiny).pack(side="right", padx=(0, S3))
+                     font=self.f_tiny).pack(side="right")
 
     @staticmethod
     def _hk_text(hk, empty):
