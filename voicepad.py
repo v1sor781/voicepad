@@ -38,7 +38,7 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 NONE = "— нет —"
 HISTORY_MAX = 50
-APP_VERSION = "1.0.8"
+APP_VERSION = "1.0.9"
 DEFAULT_MODEL = "s2.1-pro-free"  # бесплатная модель Fish Audio API; платная: "s2-pro"
 
 # ---- палитра интерфейса (совпадает со страницей скачивания)
@@ -402,10 +402,21 @@ PA_HINTS = {
 def audio_error_text(exc):
     """Текст ошибки звука: сообщение драйвера плюс понятная подсказка по коду PortAudio."""
     text = str(exc).strip() or exc.__class__.__name__
-    match = re.search(r"PaErrorCode\s*(-?\d+)", text)
-    hint = PA_HINTS.get(int(match.group(1))) if match else None
-    if not hint and "busy" in text.lower():
+    low = text.lower()
+    # у WASAPI PaErrorCode -9999 может скрывать конкретную причину — читаем её из текста
+    if "audclnt_e_unsupported_format" in low or "unsupported format" in low:
+        hint = "формат не поддерживается устройством: проверьте формат по умолчанию в свойствах устройства Windows"
+    elif "audclnt_e_device_in_use" in low or "device in use" in low:
         hint = "устройство занято другой программой"
+    elif "audclnt_e_device_invalidated" in low or "device invalidated" in low:
+        hint = "устройство отключилось или стало недоступно"
+    elif "audclnt_e_exclusive_mode_not_allowed" in low:
+        hint = "эксклюзивный режим запрещён: отключите его в свойствах устройства"
+    else:
+        match = re.search(r"PaErrorCode\s*(-?\d+)", text)
+        hint = PA_HINTS.get(int(match.group(1))) if match else None
+        if not hint and "busy" in low:
+            hint = "устройство занято другой программой"
     return text + (f" — {hint}" if hint else "")
 
 
@@ -438,30 +449,53 @@ def record_peak(dev, seconds, on_level):
         on_level(lvl)
 
     rates = []
-    for rate in (default_sr, 48000, 44100):
+    for rate in (default_sr, 48000, 44100, 32000, 22050, 16000):
         if rate and rate not in rates:
             rates.append(rate)
     channels = []
-    for ch in (min(max_ch, 2), 1):
-        if ch >= 1 and ch not in channels:
+    for ch in (min(max_ch, 2), 1, 2):
+        if 1 <= ch <= max(max_ch, 2) and ch not in channels:
             channels.append(ch)
+    dtypes = ("float32", "int16")
 
     errors = []
+    seen = set()
     for ch in channels:
         for rate in rates:
-            for wasapi in (True, False):
-                try:
-                    extra = sd.WasapiSettings(auto_convert=True) if wasapi else None
-                    stream = sd.InputStream(device=dev, channels=ch, samplerate=rate,
-                                            dtype="float32", extra_settings=extra, callback=cb)
-                    with stream:
-                        time.sleep(seconds)
-                    return peak[0]
-                except Exception as e:
-                    errors.append(f"{ch} кан., {rate} Гц: {audio_error_text(e)}")
-                    if peak[0] > 0:
-                        return peak[0]      # сигнал уже шёл, ошибка не критична
-    raise RuntimeError("устройство записи не открылось (" + "; ".join(errors[:2]) + ")")
+            for dtype in dtypes:
+                for wasapi in (True, False):
+                    key = (ch, rate, dtype, wasapi)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    try:
+                        extra = sd.WasapiSettings(auto_convert=True) if wasapi else None
+                        stream = sd.InputStream(device=dev, channels=ch, samplerate=rate,
+                                                dtype=dtype, extra_settings=extra, callback=cb)
+                        with stream:
+                            time.sleep(seconds)
+                        return peak[0]
+                    except Exception as e:
+                        errors.append(f"{ch} кан., {rate} Гц, {dtype}: {audio_error_text(e)}")
+                        if peak[0] > 0:
+                            return peak[0]      # сигнал уже шёл, ошибка не критична
+    # показываем разные причины, а не повтор одного и того же
+    unique = []
+    for msg in errors:
+        if msg not in unique:
+            unique.append(msg)
+        if len(unique) >= 4:
+            break
+    if not unique:
+        unique = ["неизвестная причина"]
+    dev_info = ""
+    try:
+        di = sd.query_devices(dev)
+        dev_info = (f" Устройство: «{di.get('name', dev)}», каналов записи {di.get('max_input_channels')}, "
+                    f"частота по умолчанию {int(di.get('default_samplerate') or 0)} Гц.")
+    except Exception:
+        pass
+    raise RuntimeError("устройство записи не открылось (" + "; ".join(unique) + ")." + dev_info)
 
 
 def make_tone(sr=44100, seconds=1.2, freq=440.0, amp=0.35):
