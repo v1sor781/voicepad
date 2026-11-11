@@ -38,7 +38,7 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 NONE = "— нет —"
 HISTORY_MAX = 50
-APP_VERSION = "1.0.9"
+APP_VERSION = "1.0.10"
 DEFAULT_MODEL = "s2.1-pro-free"  # бесплатная модель Fish Audio API; платная: "s2-pro"
 
 # ---- палитра интерфейса (совпадает со страницей скачивания)
@@ -456,42 +456,58 @@ def record_peak(dev, seconds, on_level):
     for ch in (min(max_ch, 2), 1, 2):
         if 1 <= ch <= max(max_ch, 2) and ch not in channels:
             channels.append(ch)
-    dtypes = ("float32", "int16")
+    dtypes = ("float32", "int32", "int16")
+    modes = (
+        ("wasapi", lambda: sd.WasapiSettings(auto_convert=True, exclusive=False)),
+        ("default", lambda: None),
+        ("wasapi-excl", lambda: sd.WasapiSettings(auto_convert=False, exclusive=True)),
+    )
 
     errors = []
     seen = set()
     for ch in channels:
         for rate in rates:
             for dtype in dtypes:
-                for wasapi in (True, False):
-                    key = (ch, rate, dtype, wasapi)
+                for mode_name, mode_fn in modes:
+                    key = (ch, rate, dtype, mode_name)
                     if key in seen:
                         continue
                     seen.add(key)
                     try:
-                        extra = sd.WasapiSettings(auto_convert=True) if wasapi else None
+                        extra = mode_fn()
+                    except Exception:
+                        continue
+                    try:
                         stream = sd.InputStream(device=dev, channels=ch, samplerate=rate,
                                                 dtype=dtype, extra_settings=extra, callback=cb)
                         with stream:
                             time.sleep(seconds)
                         return peak[0]
                     except Exception as e:
-                        errors.append(f"{ch} кан., {rate} Гц, {dtype}: {audio_error_text(e)}")
+                        errors.append(f"{ch}ch {rate}Hz {dtype} {mode_name}: {audio_error_text(e)}")
                         if peak[0] > 0:
                             return peak[0]      # сигнал уже шёл, ошибка не критична
     # показываем разные причины, а не повтор одного и того же
     unique = []
     for msg in errors:
-        if msg not in unique:
-            unique.append(msg)
-        if len(unique) >= 4:
+        reason = msg.split(": ", 1)[1] if ": " in msg else msg
+        short = msg.split(": ", 1)[0] + ": " + (reason[:120] + "…" if len(reason) > 120 else reason)
+        if short not in unique:
+            unique.append(short)
+        if len(unique) >= 5:
             break
     if not unique:
         unique = ["неизвестная причина"]
     dev_info = ""
     try:
         di = sd.query_devices(dev)
-        dev_info = (f" Устройство: «{di.get('name', dev)}», каналов записи {di.get('max_input_channels')}, "
+        host = ""
+        try:
+            host = sd.query_hostapis(di.get("hostapi"))["name"]
+        except Exception:
+            pass
+        dev_info = (f" Устройство: «{di.get('name', dev)}» ({host}), "
+                    f"каналов записи {di.get('max_input_channels')}, "
                     f"частота по умолчанию {int(di.get('default_samplerate') or 0)} Гц.")
     except Exception:
         pass
