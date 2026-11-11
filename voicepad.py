@@ -38,7 +38,7 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 NONE = "— нет —"
 HISTORY_MAX = 50
-APP_VERSION = "1.0.10"
+APP_VERSION = "0.1.0"
 DEFAULT_MODEL = "s2.1-pro-free"  # бесплатная модель Fish Audio API; платная: "s2-pro"
 
 # ---- палитра интерфейса (совпадает со страницей скачивания)
@@ -410,6 +410,8 @@ def audio_error_text(exc):
         hint = "устройство занято другой программой"
     elif "audclnt_e_device_invalidated" in low or "device invalidated" in low:
         hint = "устройство отключилось или стало недоступно"
+    elif "0x00000490" in low or "wdmsyncioctl" in low or "deviceiocontrol gle" in low:
+        hint = "драйвер устройства не отвечает (часто помогает перезагрузка VB-CABLE или ПК)"
     elif "audclnt_e_exclusive_mode_not_allowed" in low:
         hint = "эксклюзивный режим запрещён: отключите его в свойствах устройства"
     else:
@@ -427,6 +429,25 @@ def find_input(substr):
         if substr in name.lower():
             return idx
     return None
+
+
+def find_inputs(substr):
+    """Все индексы устройств записи, в названии которых есть substr (по всем host-API)."""
+    result = []
+    try:
+        for i, d in enumerate(sd.query_devices()):
+            if d.get("max_input_channels", 0) > 0 and substr in d.get("name", "").lower():
+                result.append(i)
+    except Exception:
+        pass
+    # сначала WASAPI (обычно стабильнее), потом остальные
+    try:
+        wasapi = next((n for n, h in enumerate(sd.query_hostapis()) if h["name"] == "Windows WASAPI"), None)
+        if wasapi is not None:
+            result.sort(key=lambda i: 0 if sd.query_devices(i).get("hostapi") == wasapi else 1)
+    except Exception:
+        pass
+    return result
 
 
 def record_peak(dev, seconds, on_level):
@@ -1017,8 +1038,8 @@ class App(ctk.CTk):
         if cable_in is None:
             return False, ("Не выбран «Виртуальный микрофон — выход». Откройте «Настройки» и выберите "
                            "CABLE Input (если его нет в списке, установите VB-CABLE и перезагрузите ПК).")
-        cable_out = find_input("cable output")
-        if cable_out is None:
+        cable_outs = find_inputs("cable output")
+        if not cable_outs:
             return False, ("Не вижу устройство CABLE Output. Если VB-CABLE только что установлен, "
                            "перезагрузите компьютер.")
         data, sr = make_tone()
@@ -1034,23 +1055,35 @@ class App(ctk.CTk):
                 threading.Thread(target=self.engine._out, args=(dev, data, sr, vol, token), daemon=True).start()
 
         threading.Timer(0.3, play).start()
-        peak = record_peak(cable_out, 2.0, on_level)
-        return verdict(
-            peak,
-            "Работает: тестовый сигнал дошёл до виртуального микрофона. В игре выберите микрофон «CABLE Output»",
-            ("Сигнал не дошёл до CABLE Output. Проверьте: в «Настройки» выбран CABLE Input, "
-             "громкость выхода не на нуле, VB-CABLE установлен."),
-            "Сигнал дошёл, но очень тихий. Увеличьте громкость «Виртуальный микрофон» в настройках")
+        last_err = None
+        for cable_out in cable_outs:
+            try:
+                peak = record_peak(cable_out, 2.0, on_level)
+                return verdict(
+                    peak,
+                    "Работает: тестовый сигнал дошёл до виртуального микрофона. В игре выберите микрофон «CABLE Output»",
+                    ("Сигнал не дошёл до CABLE Output. Проверьте: в «Настройки» выбран CABLE Input, "
+                     "громкость выхода не на нуле, VB-CABLE установлен."),
+                    "Сигнал дошёл, но очень тихий. Увеличьте громкость «Виртуальный микрофон» в настройках")
+            except Exception as e:
+                last_err = e
+        raise last_err or RuntimeError("не удалось открыть устройство записи CABLE Output")
 
     def check_game_hears(self, on_level):
         """Слушает CABLE Output: то, что услышит игра (ваш голос при включённом пропуске и звуки)."""
-        cable_out = find_input("cable output")
-        if cable_out is None:
+        cable_outs = find_inputs("cable output")
+        if not cable_outs:
             return False, "Не вижу устройство CABLE Output. Установите VB-CABLE и перезагрузите компьютер."
-        peak = record_peak(cable_out, 6.0, on_level)
+        last_err = None
         hint = ("Тишина: на CABLE Output ничего не поступает. Нажмите любой звук во время проверки "
                 "или включите «Пропускать мой реальный микрофон», выберите микрофон и скажите что-нибудь")
-        return verdict(peak, "Игра слышит звук", hint, "Игра слышит звук, но очень тихо")
+        for cable_out in cable_outs:
+            try:
+                peak = record_peak(cable_out, 6.0, on_level)
+                return verdict(peak, "Игра слышит звук", hint, "Игра слышит звук, но очень тихо")
+            except Exception as e:
+                last_err = e
+        raise last_err or RuntimeError("не удалось открыть устройство записи CABLE Output")
 
     def check_real_mic(self, on_level):
         """Слушает ваш настоящий микрофон (выбранный в настройках или основной в Windows)."""
