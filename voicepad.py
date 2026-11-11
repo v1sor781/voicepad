@@ -38,7 +38,7 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 NONE = "— нет —"
 HISTORY_MAX = 50
-APP_VERSION = "0.1.1"
+APP_VERSION = "0.1.2"
 DEFAULT_MODEL = "s2.1-pro-free"  # бесплатная модель Fish Audio API; платная: "s2-pro"
 
 # ---- палитра интерфейса (совпадает со страницей скачивания)
@@ -1026,6 +1026,14 @@ class App(ctk.CTk):
     def copy_test_result(self):
         self.copy_text(self.test_result.cget("text"), "Результат проверки")
 
+    def open_data_dir(self):
+        """Открывает папку с настройками и error.log в проводнике."""
+        try:
+            APP_DIR.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(APP_DIR))
+        except Exception as e:
+            self.report(f"Не удалось открыть папку: {e}")
+
     def report_callback_exception(self, exc, val, tb):
         """Ошибки в обработчиках кнопок: пишем в лог и в строку статуса, а не молча теряем."""
         self.callback_errors.append("".join(traceback.format_exception(exc, val, tb)))
@@ -1086,12 +1094,19 @@ class App(ctk.CTk):
         for cable_out in cable_outs:
             try:
                 peak = record_peak(cable_out, 2.0, on_level)
-                return verdict(
+                ok, msg = verdict(
                     peak,
                     "Работает: тестовый сигнал дошёл до виртуального микрофона. В игре выберите микрофон «CABLE Output»",
                     ("Сигнал не дошёл до CABLE Output. Проверьте: в «Настройки» выбран CABLE Input, "
                      "громкость выхода не на нуле, VB-CABLE установлен."),
                     "Сигнал дошёл, но очень тихий. Увеличьте громкость «Виртуальный микрофон» в настройках")
+                try:
+                    di = sd.query_devices(cable_out)
+                    api = sd.query_hostapis(di.get("hostapi"))["name"]
+                    msg += f" Слушал через: «{di.get('name', cable_out)}» ({api})."
+                except Exception:
+                    pass
+                return ok, msg
             except Exception as e:
                 last_err = e
         raise last_err or RuntimeError("не удалось открыть устройство записи CABLE Output")
@@ -1107,7 +1122,14 @@ class App(ctk.CTk):
         for cable_out in cable_outs:
             try:
                 peak = record_peak(cable_out, 6.0, on_level)
-                return verdict(peak, "Игра слышит звук", hint, "Игра слышит звук, но очень тихо")
+                ok, msg = verdict(peak, "Игра слышит звук", hint, "Игра слышит звук, но очень тихо")
+                try:
+                    di = sd.query_devices(cable_out)
+                    api = sd.query_hostapis(di.get("hostapi"))["name"]
+                    msg += f" Слушал через: «{di.get('name', cable_out)}» ({api})."
+                except Exception:
+                    pass
+                return ok, msg
             except Exception as e:
                 last_err = e
         raise last_err or RuntimeError("не удалось открыть устройство записи CABLE Output")
@@ -1131,8 +1153,15 @@ class App(ctk.CTk):
                     silent = ("Микрофон молчит. Проверьте, что в «Настройки» выбран нужный микрофон, он включён "
                               "в Windows (Параметры → Система → Звук → Ввод) и разрешён для приложений "
                               "(Параметры → Конфиденциальность → Микрофон)")
-                    return verdict(peak, "Микрофон слышно", silent,
-                                   "Микрофон слышно, но очень тихо. Увеличьте его громкость в параметрах Windows")
+                    ok, msg = verdict(peak, "Микрофон слышно", silent,
+                                      "Микрофон слышно, но очень тихо. Увеличьте его громкость в параметрах Windows")
+                    try:
+                        di = sd.query_devices(candidate)
+                        api = sd.query_hostapis(di.get("hostapi"))["name"]
+                        msg += f" Слушал через: «{di.get('name', candidate)}» ({api})."
+                    except Exception:
+                        pass
+                    return ok, msg
                 except Exception as e:
                     last_err = e
         finally:
@@ -1163,6 +1192,8 @@ class App(ctk.CTk):
         row.pack(fill="x", pady=(S2, 0))
         self._btn(row, "Копировать результат", self.copy_test_result, height=30, width=168
                   ).pack(side="right")
+        self._btn(row, "Открыть папку данных", self.open_data_dir, height=30, width=168
+                  ).pack(side="right", padx=(0, S2))
 
         tests = (
             ("virtual", "Тест сигнала", "Проиграет короткий писк через виртуальный микрофон и проверит, "
@@ -1990,17 +2021,25 @@ class App(ctk.CTk):
         self.report("Слушаю микрофон 3 секунды: скажите что-нибудь…")
 
         def worker():
-            try:
-                peak = record_peak(dev, 3.0, lambda _v: None)
-            except Exception as e:
-                self.report(f"Микрофон недоступен: {e}")
-                return
-            _ok, msg = verdict(
-                peak,
-                "Микрофон слышно. Если вас всё равно не слышно в игре — включите пропуск микрофона",
-                "Микрофон молчит: проверьте, что он включён в Windows и разрешён приложениям",
-                "Микрофон слышно, но очень тихо: увеличьте его громкость в параметрах Windows")
-            self.report(msg)
+            last_err = None
+            for candidate in same_name_devices(dev, "input"):
+                try:
+                    peak = record_peak(candidate, 3.0, lambda _v: None)
+                    _ok, msg = verdict(
+                        peak,
+                        "Микрофон слышно. Если вас всё равно не слышно в игре — включите пропуск микрофона",
+                        "Микрофон молчит: проверьте, что он включён в Windows и разрешён приложениям",
+                        "Микрофон слышно, но очень тихо: увеличьте его громкость в параметрах Windows")
+                    try:
+                        api = sd.query_hostapis(sd.query_devices(candidate).get("hostapi"))["name"]
+                        msg += f" ({api})"
+                    except Exception:
+                        pass
+                    self.report(msg)
+                    return
+                except Exception as e:
+                    last_err = e
+            self.report(f"Микрофон недоступен: {audio_error_text(last_err) if last_err else 'неизвестная ошибка'}")
 
         threading.Thread(target=worker, daemon=True).start()
 
