@@ -38,7 +38,7 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 NONE = "— нет —"
 HISTORY_MAX = 50
-APP_VERSION = "0.1.2"
+APP_VERSION = "0.1.3"
 DEFAULT_MODEL = "s2.1-pro-free"  # бесплатная модель Fish Audio API; платная: "s2-pro"
 
 # ---- палитра интерфейса (совпадает со страницей скачивания)
@@ -167,17 +167,30 @@ def resolve_device(value, kind):
 
 
 def same_name_devices(idx, kind):
-    """Все индексы устройств с тем же именем (разные host-API), WASAPI первым."""
+    """Все индексы устройств с тем же именем (разные host-API), WASAPI первым.
+
+    MME обрезает названия до 31 символа, поэтому имя от MME не совпадает с полным
+    именем от WASAPI. Считаем такие имена одним устройством: одно — начало другого.
+    """
     try:
         base = sd.query_devices(idx).get("name", "").strip().lower()
         if not base:
             return [idx]
     except Exception:
         return [idx]
+
+    def same(name):
+        n = name.strip().lower()
+        if n == base:
+            return True
+        # обрезанное имя MME: сравниваем по началу, но только для длинных названий,
+        # чтобы «Микрофон» не совпал со всеми микрофонами сразу
+        return len(n) >= 20 and (n.startswith(base) or base.startswith(n))
+
     result = []
     try:
         for i, d in enumerate(sd.query_devices()):
-            if d.get(f"max_{kind}_channels", 0) > 0 and d.get("name", "").strip().lower() == base:
+            if d.get(f"max_{kind}_channels", 0) > 0 and same(d.get("name", "")):
                 result.append(i)
     except Exception:
         return [idx]
