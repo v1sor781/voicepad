@@ -223,47 +223,31 @@
   }
   .note b { color: var(--text); }
 
-  /* макет окна */
-  .mock {
-    position: relative; border-radius: var(--r-4);
-    padding: var(--s-3);
-    background: linear-gradient(180deg, var(--surface), var(--bg));
+  /* настоящие скриншоты приложения */
+  .hero-shot {
+    position: relative; overflow: hidden;
+    border-radius: var(--r-4);
+    background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow);
   }
-  .mock::before {
+  .hero-shot::before {
     content: ""; position: absolute; inset: -1px; z-index: -1; border-radius: calc(var(--r-4) + 1px);
     background: linear-gradient(135deg, rgba(91, 140, 255, .5), transparent 44%, rgba(66, 201, 138, .38));
     filter: blur(22px); opacity: .5;
   }
-  .mock-bar { display: flex; gap: 6px; padding: 2px 4px var(--s-3); }
-  .mock-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
-  .mock-body { display: grid; grid-template-columns: 104px 1fr; gap: var(--s-2); }
-  .mock-side {
-    display: flex; flex-direction: column; gap: 6px;
-    padding: var(--s-3) var(--s-2); border-radius: var(--r-2);
-    background: var(--card); border: 1px solid var(--border-soft);
+  .hero-shot img, .gallery img { display: block; width: 100%; height: auto; }
+  .gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
+  .gallery figure {
+    margin: 0; overflow: hidden;
+    border-radius: var(--r-3);
+    background: var(--card);
+    border: 1px solid var(--border-soft);
   }
-  .mock-side b { display: block; height: 24px; border-radius: 7px; background: var(--card-hover); }
-  .mock-side b:first-child {
-    background: var(--accent-soft);
-    border: 1px solid rgba(91, 140, 255, .4);
-  }
-  .mock-main { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
-  .mock-card {
-    padding: var(--s-3); border-radius: var(--r-2);
-    background: var(--card); border: 1px solid var(--border-soft);
-  }
-  .mock-line { height: 8px; border-radius: 5px; background: var(--border); margin-bottom: var(--s-2); }
-  .mock-line:last-child { margin-bottom: 0; }
-  .w35 { width: 35%; } .w45 { width: 45%; } .w60 { width: 60%; } .w75 { width: 75%; } .w90 { width: 90%; }
-  .mock-row { display: flex; align-items: center; gap: var(--s-2); }
-  .mock-pill { height: 26px; width: 96px; border-radius: 8px; background: var(--accent); }
-  .mock-pill.alt { background: var(--card-hover); border: 1px solid var(--border); }
-  .mock-eq { display: flex; align-items: flex-end; gap: 4px; height: 36px; margin-top: var(--s-2); }
-  .mock-eq i {
-    flex: 1; border-radius: 3px 3px 0 0;
-    background: linear-gradient(180deg, var(--accent), var(--success)); opacity: .72;
+  .gallery figcaption {
+    padding: var(--s-3) var(--s-4);
+    border-top: 1px solid var(--border-soft);
+    color: var(--muted); font-size: 13px; line-height: 1.5;
   }
 
   /* ------------------------------------------------------------------
@@ -401,7 +385,7 @@
      ------------------------------------------------------------------ */
   @media (max-width: 960px) {
     .hero-grid { grid-template-columns: 1fr; }
-    .mock { max-width: 560px; }
+    .hero-shot { max-width: 560px; }
     .nav-links { display: none; }
     .grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
     .grid.cols-3 { grid-template-columns: 1fr; }
@@ -411,7 +395,7 @@
     .grid.cols-4 { grid-template-columns: 1fr; }
     .actions .btn { width: 100%; }
     .meta { gap: var(--s-2) var(--s-4); }
-    .mock-body { grid-template-columns: 84px 1fr; }
+    .gallery { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
@@ -434,6 +418,7 @@
       <nav class="nav-links" aria-label="Разделы страницы">
         <a href="#status">Статус</a>
         <a href="#features">Возможности</a>
+        <a href="#screenshots">Интерфейс</a>
         <a href="#how">Как работает</a>
         <a href="#requirements">Требования</a>
         <a href="#faq">Вопросы</a>
@@ -476,35 +461,9 @@
           </p>
         </div>
 
-        <div class="mock" aria-hidden="true">
-          <div class="mock-bar"><i></i><i></i><i></i></div>
-          <div class="mock-body">
-            <div class="mock-side"><b></b><b></b><b></b><b></b><b></b><b></b></div>
-            <div class="mock-main">
-              <div class="mock-card">
-                <div class="mock-line w35"></div>
-                <div class="mock-line w90"></div>
-                <div class="mock-line w75"></div>
-                <div class="mock-row" style="margin-top:12px">
-                  <span class="mock-pill"></span>
-                  <span class="mock-pill alt"></span>
-                </div>
-              </div>
-              <div class="mock-card">
-                <div class="mock-line w45"></div>
-                <div class="mock-eq">
-                  <i style="height:35%"></i><i style="height:70%"></i><i style="height:50%"></i>
-                  <i style="height:95%"></i><i style="height:62%"></i><i style="height:40%"></i>
-                  <i style="height:80%"></i><i style="height:55%"></i><i style="height:28%"></i>
-                  <i style="height:66%"></i>
-                </div>
-              </div>
-              <div class="mock-card">
-                <div class="mock-line w60"></div>
-                <div class="mock-line w90"></div>
-              </div>
-            </div>
-          </div>
+        <div class="hero-shot">
+          <img src="docs/screenshots/01-sounds.png" width="1036" height="839"
+               alt="VoicePad: раздел «Звуки» со списком звуков и горячих клавиш">
         </div>
       </div>
     </section>
@@ -599,12 +558,45 @@
       </div>
     </section>
 
+    <section class="section" id="screenshots">
+      <div class="wrap">
+        <div class="section-head">
+          <div class="eyebrow">Интерфейс</div>
+          <h2>Так выглядит VoicePad</h2>
+          <p>Скриншоты сделаны в демо-режиме с вымышленными фразами: настоящие настройки и API-ключ в них не попадают.</p>
+        </div>
+
+        <div class="gallery">
+          <figure>
+            <img src="docs/screenshots/02-voice-ai.png" width="1036" height="839"
+                 alt="Раздел «Голос ИИ»: поле текста, выбор голоса и результаты поиска">
+            <figcaption>Озвучка текста и поиск голосов Fish Audio.</figcaption>
+          </figure>
+          <figure>
+            <img src="docs/screenshots/03-phrases.png" width="1036" height="839"
+                 alt="Раздел «Фразы»: готовые фразы с назначенными горячими клавишами">
+            <figcaption>Фразы с горячими клавишами: первая озвучка сохраняется.</figcaption>
+          </figure>
+          <figure>
+            <img src="docs/screenshots/05-settings.png" width="1036" height="839"
+                 alt="Раздел «Настройки»: выбор аудиоустройств, громкость и хранение ключа">
+            <figcaption>Настройки микрофона, наушников и зашифрованного ключа.</figcaption>
+          </figure>
+          <figure>
+            <img src="docs/screenshots/06-mic-check.png" width="1036" height="839"
+                 alt="Раздел «Проверка»: индикаторы уровня и тесты виртуального микрофона">
+            <figcaption>Проверка: игра или Discord действительно слышат вас.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
     <section class="section" id="how">
       <div class="wrap">
         <div class="section-head">
           <div class="eyebrow">Как это работает</div>
           <h2>Три шага до первого звука</h2>
-          <p>Так будет выглядеть настройка после публичного релиза. Виртуальный микрофон программа поставит сама.</p>
+          <p>Так будет выглядеть настройка после публичного релиза. Виртуальный микрофон программа поставит сама — скачав установщик только с сайта VB-Audio и проверив его подпись.</p>
         </div>
 
         <div class="grid cols-3">
@@ -659,7 +651,7 @@
             </div>
             <div class="tip">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg>
-              <div><b>Приватность.</b> API-ключ и настройки хранятся только на вашем компьютере в папке <code>%USERPROFILE%\.voicepad</code>.</div>
+              <div><b>Приватность.</b> Настройки хранятся в <code>%USERPROFILE%\.voicepad</code>, а API-ключ — зашифрованным через Windows DPAPI. Текст для озвучки отправляется только в Fish Audio.</div>
             </div>
           </div>
         </div>
@@ -671,19 +663,19 @@
         <div class="section-head">
           <div class="eyebrow">Приватность</div>
           <h2>Ваши данные — только у вас</h2>
-          <p>VoicePad не собирает статистику, не показывает рекламу и не отправляет данные третьим лицам.</p>
+          <p>VoicePad не собирает статистику и не показывает рекламу. Единственная передача данных вовне — запрос к Fish Audio с текстом фразы и вашим API-ключом: без него синтез речи невозможен.</p>
         </div>
 
         <div class="grid cols-3">
           <article class="card">
             <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg></div>
             <h3>Ключ остаётся локально</h3>
-            <p>API-ключ хранится в файле настроек на компьютере и уходит только на Fish Audio.</p>
+            <p>API-ключ шифруется через Windows DPAPI и хранится в <code>key.dat</code>, а не в <code>config.json</code>. Его можно удалить кнопкой в настройках. На Fish Audio уходит только сам запрос на озвучку.</p>
           </article>
           <article class="card">
             <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v12H8l-4 4z"/><path d="M8 9h8M8 12h5"/></svg></div>
             <h3>Озвучка на диске</h3>
-            <p>Готовые wav-файлы лежат в папке программы и удаляются вместе с фразами.</p>
+            <p>Готовые wav-файлы лежат в <code>%USERPROFILE%\.voicepad\tts</code> и удаляются, когда фраза или запись истории больше не используется.</p>
           </article>
           <article class="card">
             <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6l-5 6 5 6"/><path d="M16 6l5 6-5 6"/></svg></div>
@@ -734,15 +726,15 @@
           <details>
             <summary>Будет ли работать в любой игре и Discord?</summary>
             <div class="answer">
-              <p>Да. Для игры или Discord виртуальный микрофон выглядит как обычное устройство записи. Достаточно выбрать <b>CABLE Output</b> в настройках звука приложения.</p>
-              <p>Аналогично — с OBS, TeamSpeak, Zoom и другими программами, где можно выбрать микрофон.</p>
+              <p>Совместимо с большинством приложений: для игры или Discord виртуальный микрофон выглядит как обычное устройство записи. Достаточно выбрать <b>CABLE Output</b> в настройках звука приложения.</p>
+              <p>То же работает в OBS, TeamSpeak, Zoom и других программах со выбором микрофона. Ограничение — игры с античитом и приложения с собственным захватом ввода могут блокировать глобальные горячие клавиши: в таком случае используйте кнопки в окне VoicePad.</p>
             </div>
           </details>
           <details>
             <summary>Куда сохраняются ключ, настройки и озвучка?</summary>
             <div class="answer">
-              <p>Всё лежит в папке <code>%USERPROFILE%\.voicepad</code>: настройки — в <code>config.json</code>, готовые wav-файлы — в подпапке <code>tts</code>.</p>
-              <p>Ключ API никуда не отправляется, кроме Fish Audio. Рекламы, телеметрии и сторонней аналитики в программе нет.</p>
+              <p>Всё лежит в папке <code>%USERPROFILE%\.voicepad</code>: настройки — в <code>config.json</code>, готовые wav-файлы — в подпапке <code>tts</code>, ключ — зашифрованным в <code>key.dat</code>.</p>
+              <p>Ключ API и текст фразы отправляются только в Fish Audio для синтеза речи. Рекламы, телеметрии и сторонней аналитики в программе нет.</p>
             </div>
           </details>
           <details>

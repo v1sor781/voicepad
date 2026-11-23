@@ -5,4 +5,7 @@ installer/
 __pycache__/
 *.pyc
 config.json
+key.dat
+config.json.bak
+smoke*.txt
 tts/
